@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Mandina Kitchen Inventory V2</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <h1>Mandina Kitchen Inventory V2</h1>
+
+  <button id="loginBtn">Login with Google</button>
+  <button id="logoutBtn" style="display:none;">Logout</button>
+
+  <pre id="userBox"></pre>
+
+  <script>
+    const SUPABASE_URL = "https://xuxfsledecxxoddbejcg.supabase.co";
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh1eGZzbGVkZWN4eG9kZGJlamNnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTQ1ODIsImV4cCI6MjA5ODIzMDU4Mn0.bj2F0DhjZB2PeLvS7JcWHSpsuFIO5exMmqu4PRr1IYA";
+
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    const loginBtn = document.getElementById("loginBtn");
+    const logoutBtn = document.getElementById("logoutBtn");
+    const userBox = document.getElementById("userBox");
+
+    loginBtn.onclick = async () => {
+      const { error } = await supabaseClient.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: "https://mandina-inventory-v2.vercel.app/"
+        }
+      });
+
+      if (error) alert(error.message);
+    };
+
+    logoutBtn.onclick = async () => {
+      await supabaseClient.auth.signOut();
+      location.reload();
+    };
+
+    async function loadUser() {
+      const { data } = await supabaseClient.auth.getUser();
+
+      if (data.user) {
+        loginBtn.style.display = "none";
+        logoutBtn.style.display = "inline-block";
+        userBox.textContent = JSON.stringify(data.user, null, 2);
+      } else {
+        loginBtn.style.display = "inline-block";
+        logoutBtn.style.display = "none";
+        userBox.textContent = "Not logged in";
+      }
+    }
+
+    loadUser();
+  </script>
+</body>
+</html>
