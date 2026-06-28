@@ -1,0 +1,1 @@
+# mandina-inventory-v2
