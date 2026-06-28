@@ -15,8 +15,8 @@
 <div class="wrap"><nav id="nav"></nav><main id="app"><div class="card">Loading...</div></main></div>
 <script>
 /* 1) Create new Supabase project. 2) Run mandina_v2_setup.sql. 3) Put your project URL/key below. 4) In Supabase Auth URL config add your Vercel/GitHub Pages URL. First Google login with thegameboyxxx@gmail.com becomes Manager automatically. */
-const SUPABASE_URL = 'PASTE_YOUR_SUPABASE_URL_HERE';
-const SUPABASE_ANON_KEY = 'PASTE_YOUR_SUPABASE_ANON_KEY_HERE';
+const SUPABASE_URL = 'https://xuxfsledecxxoddbejcg.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh1eGZzbGVkZWN4eG9kZGJlamNnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTQ1ODIsImV4cCI6MjA5ODIzMDU4Mn0.bj2F0DhjZB2PeLvS7JcWHSpsuFIO5exMmqu4PRr1IYA';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const state={user:null,profile:null,branches:[],branchId:null,items:[],suppliers:[],units:[],cats:[],menu:[],view:'dashboard'};
 const modules=[
