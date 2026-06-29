@@ -458,7 +458,7 @@ async function addStockMovement(note, po, line) {
   const payload = {
     branch_id: state.currentBranchId,
     item_id: line.item_id,
-    movement_type: "receiving",
+    movement_type: "RECEIVING",
     qty_change: amount,
     qty: amount,
     quantity: amount,
