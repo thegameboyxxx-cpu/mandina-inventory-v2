@@ -181,7 +181,7 @@ async function openReceiving(po){
         rejected_qty:Number(l.rejected_qty||0), reject_reason:l.reject_reason||null,
         order_unit:l.unit, stock_unit:l.stock_unit, cost_unit:l.cost_unit,
         cost_qty:sameUnit(l.unit,l.cost_unit)?Number(l.accepted_qty||0):Number(l.actual_cost_qty||0),
-        unit_price:Number(l.unit_price||0), line_total:calcLine(l), notes:l.notes||null, sort_order:i
+        unit_price:Number(l.unit_price||0), notes:l.notes||null, sort_order:i
       }));
 
       const r = await state.db.from("receiving_note_lines").insert(rows);
