@@ -34,7 +34,7 @@ function branchPhone(){
   return b.phone || b.telephone || b.mobile || b.contact_phone || "";
 }
 function companyName(){
-  return "Mandina Kitchen | مدينة كيتشن";
+  return "Mandina Kitchen";
 }
 function poPhone(){
   return "0404 722 009";
@@ -47,7 +47,6 @@ function docHeader(title, number){
     <div class="doc-header">
       <div>
         <div class="logo-mark">Mandina Kitchen</div>
-        <div class="arabic-logo">مدينة كيتشن</div>
         <div class="muted">${esc(companyName())}</div>
       </div>
       <div style="text-align:right">
