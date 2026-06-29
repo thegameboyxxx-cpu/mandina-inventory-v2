@@ -177,7 +177,7 @@ async function openReceiving(po){
 
       const rows = active.map((l,i)=>({
         receiving_note_id:note.id, purchase_order_id:po.id, purchase_order_line_id:l.purchase_order_line_id,
-        item_id:l.item_id, received_qty:Number(l.receive_now_qty||0), delivered_qty: Number(l.receive_now_qty || 0), accepted_qty:Number(l.accepted_qty||0),
+        item_id:l.item_id, received_qty:Number(l.receive_now_qty||0), delivered_qty: Number(l.receive_now_qty || 0), receive_unit: l.unit, accepted_qty:Number(l.accepted_qty||0),
         rejected_qty:Number(l.rejected_qty||0), reject_reason:l.reject_reason||null,
         order_unit:l.unit, stock_unit:l.stock_unit, cost_unit:l.cost_unit,
         cost_qty:sameUnit(l.unit,l.cost_unit)?Number(l.accepted_qty||0):Number(l.actual_cost_qty||0),
