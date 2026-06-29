@@ -205,7 +205,7 @@ async function openReceiving(po){
 async function addStockMovement(note, po, l){
   const payload = {
     branch_id:state.currentBranchId, item_id:l.item_id, movement_type:"receiving",
-    qty:Number(l.accepted_qty||0), quantity:Number(l.accepted_qty||0), unit:l.stock_unit,
+    qty:Number(l.accepted_qty||0), quantity:Number(l.accepted_qty||0), qty_change: Number(l.accepted_qty || 0), unit:l.stock_unit,
     reference_id:note.id, reference_type:"receiving", notes:`Receiving ${rnNo(note)} from ${poNo(po)}`,
     created_by:state.user.id
   };
