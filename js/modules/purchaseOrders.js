@@ -1,3 +1,4 @@
+
 import { state, isManager } from "../state.js";
 import { $, esc, money, qty, showError, toast, openModal, closeModal } from "../utils.js";
 import { safeSelect, insertRow, updateRow, deleteRows } from "../services/db.js";
@@ -9,42 +10,77 @@ let stockBalances = [];
 let receivingNotes = [];
 let receivingLines = [];
 
-const getSupplier = id => state.suppliers.find(s=>s.id===id);
-const getItem = id => state.items.find(i=>i.id===id);
+const getSupplier = id => state.suppliers.find(s => s.id === id);
+const getItem = id => state.items.find(i => i.id === id);
 const itemLabel = i => i ? `${i.name}${i.name_ar ? " / " + i.name_ar : ""}` : "Item";
 const poNumber = po => po.po_number || `PO-${String(po.id || "").slice(0,8)}`;
 const sameUnit = (a,b) => String(a||"").toLowerCase().trim() === String(b||"").toLowerCase().trim();
 const rnNo = n => n.grn_number || n.receiving_number || `RN-${String(n.id || "").slice(0,8)}`;
 
 
-function branchName(){
-  const b = (state.branches || []).find(x => x.id === state.currentBranchId);
-  return b?.name || b?.branch_name || state.currentBranchId || "";
+function branchRecord(){
+  return (state.branches || []).find(b => b.id === state.currentBranchId) || {};
 }
-
+function branchName(){
+  const b = branchRecord();
+  return b.name || b.branch_name || b.title || state.currentBranchId || "";
+}
+function branchAddress(){
+  const b = branchRecord();
+  return b.address || b.full_address || b.street_address || b.location || "";
+}
+function branchPhone(){
+  const b = branchRecord();
+  return b.phone || b.telephone || b.mobile || b.contact_phone || "";
+}
+function companyName(){
+  return "Mandina Kitchen | مدينة كيتشن";
+}
+function poPhone(){
+  return "0404 722 009";
+}
 function supplierEmail(s){
   return s?.email || s?.company_email || s?.contact_email || "";
 }
-
+function docHeader(title, number){
+  return `
+    <div class="doc-header">
+      <div>
+        <div class="logo-mark">Mandina Kitchen</div>
+        <div class="arabic-logo">مدينة كيتشن</div>
+        <div class="muted">${esc(companyName())}</div>
+      </div>
+      <div style="text-align:right">
+        <h1>${esc(title)}</h1>
+        <div><b>${esc(number)}</b></div>
+        <div class="muted">Branch: ${esc(branchName())}</div>
+        <div class="muted">${esc(branchAddress())}</div>
+        <div class="muted">Branch phone: ${esc(branchPhone() || "-")}</div>
+        <div class="muted">PO contact: ${esc(poPhone())}</div>
+      </div>
+    </div>`;
+}
 function openPrintWindow(title, bodyHtml){
   const w = window.open("", "_blank");
   if(!w) return toast("Popup blocked. Allow popups to print PDF.", "error");
   w.document.write(`<!doctype html><html><head><title>${esc(title)}</title>
   <style>
-    body{font-family:Arial,sans-serif;padding:28px;color:#222}
-    h1,h2{margin:0 0 12px}
-    .muted{color:#666;font-size:12px}
+    body{font-family:Arial,Helvetica,sans-serif;padding:28px;color:#222}
+    h1{font-size:24px;margin:0 0 8px}
+    .doc-header{display:flex;justify-content:space-between;gap:20px;border-bottom:3px solid #b8892d;padding-bottom:14px;margin-bottom:18px}
+    .logo-mark{font-weight:900;font-size:24px;color:#7a4b11}
+    .arabic-logo{font-size:18px;font-weight:700;color:#b8892d;margin-top:2px}
+    .muted{color:#666;font-size:12px;line-height:1.4}
     table{width:100%;border-collapse:collapse;margin-top:14px}
     th,td{border:1px solid #ddd;padding:8px;text-align:left;font-size:13px}
-    th{background:#f4f4f4}
+    th{background:#f6f0e6}
     .total{text-align:right;font-weight:bold;font-size:18px;margin-top:18px}
-    .header{display:flex;justify-content:space-between;gap:20px;margin-bottom:18px}
+    .box{border:1px solid #ddd;padding:10px;margin-top:12px;background:#fafafa}
   </style></head><body>${bodyHtml}</body></html>`);
   w.document.close();
   w.focus();
   setTimeout(()=>w.print(), 250);
 }
-
 function mailTo(email, subject, body){
   if(!email) return toast("Supplier email not found.", "error");
   window.location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
@@ -59,7 +95,7 @@ function lineTotal(l){
 function lineTotalText(l){ return sameUnit(l.unit||l.order_unit,l.cost_unit) ? money(lineTotal(l)) : "Pending receiving"; }
 function statusBadge(st){
   const s = st || "draft";
-  const cls = s === "approved" ? "blue" : s === "draft" ? "gold" : s.includes("received") ? "green" : s === "closed" ? "red" : s === "cancelled" ? "red" : "gold";
+  const cls = s === "approved" ? "blue" : s === "draft" ? "gold" : s.includes("received") ? "green" : s === "closed" || s === "cancelled" ? "red" : "gold";
   return `<span class="badge ${cls}">${esc(s)}</span>`;
 }
 
@@ -88,7 +124,7 @@ export async function renderPurchaseOrders(){
           <button class="btn" id="newPoBtn">+ New PO</button>
         </div>
       </div>
-      <div class="muted" style="margin-bottom:10px">Branch: <b>${esc(branchName())}</b></div>
+      <div class="muted" style="margin-bottom:10px">Branch: <b>${esc(branchName())}</b> ${branchAddress()? " — " + esc(branchAddress()) : ""}</div>
       <div id="poTable"></div>
     </div>`;
     $("poStatusFilter").value = poFilters.status;
@@ -190,18 +226,35 @@ async function openPoModal(po=null){
   if(isEdit && (po.status || "draft")==="draft") $("approvePoBtn").onclick = async()=>approvePo(po.id);
   if(isEdit && (po.status || "")==="partially_received") $("closePoBtn").onclick = async()=>closePo(po.id);
 
-  $("poForm").onsubmit = async(e)=>{ e.preventDefault(); if(locked) return; const fd=new FormData(e.target); const total=localLines.reduce((sum,l)=>sum+lineTotal({...l,unit:l.unit||l.order_unit}),0); const payload={branch_id:state.currentBranchId,supplier_id:fd.get("supplier_id"),status:po?.status||"draft",order_date:fd.get("order_date")||new Date().toISOString().slice(0,10),expected_delivery_date:fd.get("expected_delivery_date")||null,delivery_asap:fd.get("delivery_asap")==="on",notes:fd.get("notes")||null,total_amount:total,updated_at:new Date().toISOString()}; try{let saved;if(isEdit)saved=await updateRow("purchase_orders",po.id,payload);else{payload.created_by=state.user.id;payload.po_number=`PO-${Date.now().toString().slice(-8)}`;saved=await insertRow("purchase_orders",payload)} await deleteRows("purchase_order_lines","purchase_order_id",saved.id); const clean=localLines.filter(l=>l.item_id).map((l,idx)=>{const it=getItem(l.item_id), orderUnit=l.unit||l.order_unit||it?.receiving_unit||it?.stock_unit, costUnit=l.cost_unit||it?.cost_unit||it?.stock_unit; return {purchase_order_id:saved.id,item_id:l.item_id,ordered_qty:Number(l.ordered_qty||0),unit:orderUnit,order_unit:orderUnit,cost_unit:costUnit,unit_price:Number(l.unit_price||0),notes:l.notes||null,sort_order:idx};}); if(clean.length){const {error}=await state.db.from("purchase_order_lines").insert(clean); if(error)throw error;} toast("Purchase order saved.","ok"); closeModal(); renderPurchaseOrders();}catch(err){toast("PO save failed: "+err.message,"error");}};
+  $("poForm").onsubmit = async(e)=>{
+    e.preventDefault(); if(locked) return;
+    const fd=new FormData(e.target);
+    const total=localLines.reduce((sum,l)=>sum+lineTotal({...l,unit:l.unit||l.order_unit}),0);
+    const payload={branch_id:state.currentBranchId,supplier_id:fd.get("supplier_id"),status:po?.status||"draft",order_date:fd.get("order_date")||new Date().toISOString().slice(0,10),expected_delivery_date:fd.get("expected_delivery_date")||null,delivery_asap:fd.get("delivery_asap")==="on",notes:fd.get("notes")||null,total_amount:total,updated_at:new Date().toISOString()};
+    try{
+      let saved;
+      if(isEdit)saved=await updateRow("purchase_orders",po.id,payload);
+      else{payload.created_by=state.user.id;payload.po_number=`PO-${Date.now().toString().slice(-8)}`;saved=await insertRow("purchase_orders",payload)}
+      await deleteRows("purchase_order_lines","purchase_order_id",saved.id);
+      const clean=localLines.filter(l=>l.item_id).map((l,idx)=>{
+        const it=getItem(l.item_id), orderUnit=l.unit||l.order_unit||it?.receiving_unit||it?.stock_unit, costUnit=l.cost_unit||it?.cost_unit||it?.stock_unit;
+        return {purchase_order_id:saved.id,item_id:l.item_id,ordered_qty:Number(l.ordered_qty||0),unit:orderUnit,order_unit:orderUnit,cost_unit:costUnit,unit_price:Number(l.unit_price||0),notes:l.notes||null,sort_order:idx};
+      });
+      if(clean.length){const {error}=await state.db.from("purchase_order_lines").insert(clean); if(error)throw error;}
+      toast("Purchase order saved.","ok"); closeModal(); renderPurchaseOrders();
+    }catch(err){toast("PO save failed: "+err.message,"error");}
+  };
 }
 
 function summaryBlock(po){ const actual=receivedTotalForPo(po.id); return `<div class="grid cards" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-top:16px"><div class="card"><div class="stat-title">Branch</div><div><b>${esc(branchName())}</b></div></div><div class="card"><div class="stat-title">PO Total</div><div><b>${money(po.total_amount)}</b></div></div><div class="card"><div class="stat-title">Received Total</div><div><b>${money(actual)}</b></div></div><div class="card"><div class="stat-title">Outstanding</div><div><b>${money(Math.max(0, Number(po.total_amount||0)-actual))}</b></div></div></div>`; }
-function receivingNotesBlock(po){ const notes=relatedNotes(po.id); return `<div class="card" style="margin-top:16px"><div class="section-head"><h3 style="margin:0">Receiving Notes</h3></div><table><thead><tr><th>RN</th><th>Branch</th><th>Date</th><th>Total</th></tr></thead><tbody>${notes.map(n=>`<tr><td>${esc(rnNo(n))}</td><td>${esc(branchName())}</td><td>${esc((n.received_date||n.received_at||n.created_at||"").slice(0,10))}</td><td>${money(n.total_amount)}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">No receiving notes yet.</td></tr>`}</tbody></table></div>`; }
+function receivingNotesBlock(po){ const notes=relatedNotes(po.id); return `<div class="card" style="margin-top:16px"><div class="section-head"><h3 style="margin:0">Receiving Notes</h3></div><table><thead><tr><th>RN</th><th>Branch</th><th>Date</th><th>Total</th><th>Payment</th></tr></thead><tbody>${notes.map(n=>`<tr><td>${esc(rnNo(n))}</td><td>${esc(branchName())}</td><td>${esc((n.received_date||n.received_at||n.created_at||"").slice(0,10))}</td><td>${money(n.total_amount)}</td><td>${esc(n.payment_status||"unpaid")} (${money(n.paid_amount||0)})</td></tr>`).join("") || `<tr><td colspan="5" class="muted">No receiving notes yet.</td></tr>`}</tbody></table></div>`; }
 
 async function approvePo(id){ try{const {error}=await state.db.from("purchase_orders").update({status:"approved",approved_at:new Date().toISOString(),approved_by:state.user.id}).eq("id",id); if(error)throw error; toast("Purchase order approved.","ok"); closeModal(); renderPurchaseOrders();}catch(e){toast(e.message,"error");} }
 async function closePo(id){ try{const {error}=await state.db.from("purchase_orders").update({status:"closed",updated_at:new Date().toISOString()}).eq("id",id); if(error)throw error; toast("Purchase order closed.","ok"); closeModal(); renderPurchaseOrders();}catch(e){toast(e.message,"error");} }
 
-function poText(po, lines){ return [`Purchase Order: ${poNumber(po)}`,`Branch: ${branchName()}`,`Supplier: ${supplierName(getSupplier(po.supplier_id))}`,`PO Date: ${po.order_date || (po.created_at || "").slice(0,10)}`,`Delivery: ${po.delivery_asap ? "ASAP" : po.expected_delivery_date || "-"}`,"",...lines.filter(l=>l.item_id).map((l,i)=>`${i+1}. ${itemLabel(getItem(l.item_id))} - ${qty(l.ordered_qty)} ${l.unit || l.order_unit || getItem(l.item_id)?.receiving_unit || ""}`),"",`PO Total: ${money(po.total_amount)}`,`Actual Received Total: ${money(receivedTotalForPo(po.id))}`,po.notes ? `Notes: ${po.notes}` : ""].join("\n"); }
+function poText(po, lines){ return [`Purchase Order: ${poNumber(po)}`,`Company: ${companyName()}`,`Branch: ${branchName()}`,branchAddress()?`Address: ${branchAddress()}`:"",`Branch Phone: ${branchPhone() || "-"}`,`PO Contact: ${poPhone()}`,`Supplier: ${supplierName(getSupplier(po.supplier_id))}`,`PO Date: ${po.order_date || (po.created_at || "").slice(0,10)}`,`Delivery: ${po.delivery_asap ? "ASAP" : po.expected_delivery_date || "-"}`,"",...lines.filter(l=>l.item_id).map((l,i)=>`${i+1}. ${itemLabel(getItem(l.item_id))} - ${qty(l.ordered_qty)} ${l.unit || l.order_unit || getItem(l.item_id)?.receiving_unit || ""}`),"",`PO Total: ${money(po.total_amount)}`,`Actual Received Total: ${money(receivedTotalForPo(po.id))}`,po.notes ? `Notes: ${po.notes}` : ""].filter(Boolean).join("\n"); }
 function copyPoText(po, lines){ navigator.clipboard.writeText(poText(po,lines)); toast("PO text copied.","ok"); }
 function emailPo(po, lines){ mailTo(supplierEmail(getSupplier(po.supplier_id)), `Purchase Order ${poNumber(po)} - ${branchName()}`, poText(po, lines)); }
-function printPo(po, lines){ const rows=lines.filter(l=>l.item_id).map((l,i)=>`<tr><td>${i+1}</td><td>${esc(itemLabel(getItem(l.item_id)))}</td><td>${qty(l.ordered_qty)} ${esc(l.unit||l.order_unit||"")}</td><td>${esc(l.cost_unit||"")}</td><td>${money(l.unit_price)}</td><td>${lineTotalText(l)}</td></tr>`).join(""); openPrintWindow(`PO ${poNumber(po)}`, `<div class="header"><div><h1>Purchase Order</h1><div>${esc(poNumber(po))}</div></div><div><b>Branch:</b> ${esc(branchName())}<br><b>Supplier:</b> ${esc(supplierName(getSupplier(po.supplier_id)))}<br><b>Date:</b> ${esc(po.order_date || "")}</div></div><table><thead><tr><th>#</th><th>Item</th><th>Qty</th><th>Cost Unit</th><th>Price</th><th>Total</th></tr></thead><tbody>${rows}</tbody></table><div class="total">PO Total: ${money(po.total_amount)}</div>`); }
+function printPo(po, lines){ const rows=lines.filter(l=>l.item_id).map((l,i)=>`<tr><td>${i+1}</td><td>${esc(itemLabel(getItem(l.item_id)))}</td><td>${qty(l.ordered_qty)} ${esc(l.unit||l.order_unit||"")}</td><td>${esc(l.cost_unit||"")}</td><td>${money(l.unit_price)}</td><td>${lineTotalText(l)}</td></tr>`).join(""); openPrintWindow(`PO ${poNumber(po)}`, `${docHeader("Purchase Order", poNumber(po))}<div class="box"><b>Supplier:</b> ${esc(supplierName(getSupplier(po.supplier_id)))}<br><b>Date:</b> ${esc(po.order_date || "")}</div><table><thead><tr><th>#</th><th>Item</th><th>Qty</th><th>Cost Unit</th><th>Price</th><th>Total</th></tr></thead><tbody>${rows}</tbody></table><div class="total">PO Total: ${money(po.total_amount)}</div>`); }
 
 function openSuggestedReorderModal(){ const rows=state.items.filter(i=>Number(i.reorder_qty||0)>0); openModal(`<div class="modal-head"><h3>Suggested Reorder Draft</h3><button class="btn secondary small" onclick="closeModal()">✕</button></div><div class="modal-body"><table><thead><tr><th>Item</th><th>Supplier</th><th>Reorder Qty</th><th>Stock Unit</th></tr></thead><tbody>${rows.map(i=>`<tr><td>${esc(itemLabel(i))}</td><td>${esc(supplierName(getSupplier(i.primary_supplier_id)))}</td><td>${qty(i.reorder_qty)}</td><td>${esc(i.stock_unit)}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">No reorder quantities set.</td></tr>`}</tbody></table></div><div class="modal-foot"><button class="btn secondary" onclick="closeModal()">Close</button></div>`); }
