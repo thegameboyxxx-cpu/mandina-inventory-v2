@@ -1,0 +1,1 @@
+export const state={db:null,user:null,profile:null,role:"staff",branches:[],currentBranchId:localStorage.getItem("mandina_branch")||"carlton",page:"dashboard",suppliers:[],categories:[],items:[],purchaseOrders:[]};export const isManager=()=>state.role==="manager";
