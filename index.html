@@ -743,8 +743,10 @@ function openItemModal(i=null){
 
           <div><label>Reorder Level</label><input name="reorder_level" type="number" step="0.001" class="input" value="${esc(i?.reorder_level ?? "")}"></div>
           <div><label>Reorder Qty</label><input name="reorder_qty" type="number" step="0.001" class="input" value="${esc(i?.reorder_qty ?? "")}"></div>
-          <div><label>Default Purchase Price</label><input name="default_purchase_price" type="number" step="0.01" class="input" value="${esc(i?.default_purchase_price ?? "")}">
-            <div class="muted" style="font-size:12px;margin-top:5px">Price per Cost/Billing Unit.</div>
+          <div><label>Cost per Billing Unit</label><input name="default_purchase_price" type="number" step="0.01" class="input" value="${esc(i?.default_purchase_price ?? "")}">
+            <div class="muted" style="font-size:12px;margin-top:5px">
+  This price is per Cost/Billing Unit. Example: $18 per kg, $50 per bottle, $36 per carton.
+</div>
           </div>
           <div><label>Recipe/Sales Controlled?</label><select name="is_recipe_controlled"><option value="false">No - count report only</option><option value="true">Yes - sales variance alert</option></select></div>
           <div><label>Status</label><select name="active"><option value="true">Active</option><option value="false">Inactive</option></select></div>
