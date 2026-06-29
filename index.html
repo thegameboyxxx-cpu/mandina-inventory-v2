@@ -669,7 +669,7 @@ function renderItemsTable(){
     <table>
       <thead>
         <tr>
-          <th>Item</th><th>Category</th><th>Supplier</th><th>Package</th><th>Stock Unit</th><th>Recipe Controlled</th><th></th>
+          <th>Item</th><th>Category</th><th>Supplier</th><th>Receiving</th><th>Stock Unit</th><th>Cost Unit</th><th>Recipe Controlled</th><th></th>
         </tr>
       </thead>
       <tbody>
@@ -678,11 +678,12 @@ function renderItemsTable(){
           <td><b>${esc(i.name)}</b><div class="muted">${esc(i.name_ar || "")}</div></td>
           <td>${esc(catName(i.category_id))}</td>
           <td>${esc(suppName(i.primary_supplier_id))}</td>
-          <td>${esc(packageText(i))}</td>
+          <td>${esc(receivingText(i))}</td>
           <td>${esc(i.stock_unit)}</td>
+          <td>${esc(i.cost_unit || i.stock_unit)}</td>
           <td>${i.is_recipe_controlled ? '<span class="badge green">Yes</span>' : '<span class="badge gold">Count only</span>'}</td>
           <td><button class="btn secondary small" onclick='openItemModal(${JSON.stringify(i).replaceAll("'","&#039;")})'>Edit</button></td>
-        </tr>`).join("") || `<tr><td colspan="7" class="muted">No items yet.</td></tr>`}
+        </tr>`).join("") || `<tr><td colspan="8" class="muted">No items yet.</td></tr>`}
       </tbody>
     </table>`;
 }
@@ -693,6 +694,12 @@ function packageText(i){
   const unit = i.purchase_package_unit || "";
   if(!type && !qty && !unit) return "";
   return `${type} ${qty} ${unit}`.trim();
+}
+
+function receivingText(i){
+  const r = i.receiving_unit || i.purchase_package_type || "";
+  const pack = packageText(i);
+  return pack ? `${r} (${pack})` : r;
 }
 
 function options(list, selected, labelFn){
@@ -714,21 +721,31 @@ function openItemModal(i=null){
           <div><label>Category</label><select name="category_id">${options(state.categories, i?.category_id, c=>c.name)}</select></div>
           <div><label>Primary Supplier</label><select name="primary_supplier_id">${options(state.suppliers, i?.primary_supplier_id, supplierName)}</select></div>
 
+          <div><label>Receiving Unit</label>
+            <input name="receiving_unit" class="input" required placeholder="bag, carton, bottle, piece, kg..." value="${esc(i?.receiving_unit || i?.purchase_package_type || "")}">
+            <div class="muted" style="font-size:12px;margin-top:5px">What staff count when goods arrive.</div>
+          </div>
+          <div><label>Stock Unit</label>
+            <input name="stock_unit" class="input" required placeholder="kg, L, pieces, portions..." value="${esc(i?.stock_unit || "")}">
+            <div class="muted" style="font-size:12px;margin-top:5px">How the system tracks stock balance.</div>
+          </div>
+          <div><label>Cost / Billing Unit</label>
+            <input name="cost_unit" class="input" required placeholder="kg, bag, carton, piece..." value="${esc(i?.cost_unit || i?.stock_unit || "")}">
+            <div class="muted" style="font-size:12px;margin-top:5px">Supplier invoice unit. Default price is per this unit.</div>
+          </div>
           <div><label>Purchase Package Type</label>
             <select name="purchase_package_type">
-              ${["","bag","box","carton","tray","bucket","bottle","kg","litre","piece"].map(v=>`<option value="${v}" ${v===(i?.purchase_package_type||"")?"selected":""}>${v || "-- Select --"}</option>`).join("")}
+              ${["","bag","box","carton","tray","bucket","bottle","pack","roll","piece"].map(v=>`<option value="${v}" ${v===(i?.purchase_package_type||"")?"selected":""}>${v || "-- Select --"}</option>`).join("")}
             </select>
           </div>
           <div><label>Package Quantity</label><input name="purchase_package_qty" type="number" step="0.001" class="input" value="${esc(i?.purchase_package_qty ?? "")}"></div>
-          <div><label>Package Unit</label><input name="purchase_package_unit" class="input" placeholder="kg, L, pcs..." value="${esc(i?.purchase_package_unit || "")}"></div>
-          <div><label>Stock Unit</label><input name="stock_unit" class="input" required placeholder="kg, L, pcs, portions..." value="${esc(i?.stock_unit || "")}"></div>
-
-          <div><label>Has Dual Unit?</label><select name="has_dual_unit"><option value="false">No</option><option value="true">Yes</option></select></div>
-          <div><label>Secondary Unit</label><input name="secondary_unit" class="input" placeholder="pcs, kg..." value="${esc(i?.secondary_unit || "")}"></div>
+          <div><label>Package Unit</label><input name="purchase_package_unit" class="input" placeholder="kg, L, pieces..." value="${esc(i?.purchase_package_unit || "")}"></div>
 
           <div><label>Reorder Level</label><input name="reorder_level" type="number" step="0.001" class="input" value="${esc(i?.reorder_level ?? "")}"></div>
           <div><label>Reorder Qty</label><input name="reorder_qty" type="number" step="0.001" class="input" value="${esc(i?.reorder_qty ?? "")}"></div>
-          <div><label>Default Purchase Price</label><input name="default_purchase_price" type="number" step="0.01" class="input" value="${esc(i?.default_purchase_price ?? "")}"></div>
+          <div><label>Default Purchase Price</label><input name="default_purchase_price" type="number" step="0.01" class="input" value="${esc(i?.default_purchase_price ?? "")}">
+            <div class="muted" style="font-size:12px;margin-top:5px">Price per Cost/Billing Unit.</div>
+          </div>
           <div><label>Recipe/Sales Controlled?</label><select name="is_recipe_controlled"><option value="false">No - count report only</option><option value="true">Yes - sales variance alert</option></select></div>
           <div><label>Status</label><select name="active"><option value="true">Active</option><option value="false">Inactive</option></select></div>
         </div>
@@ -738,7 +755,6 @@ function openItemModal(i=null){
         <button class="btn">${isEdit ? "Save Changes" : "Create Item"}</button>
       </div>
     </form>`);
-  if(i?.has_dual_unit) document.querySelector("[name='has_dual_unit']").value = "true";
   if(i?.is_recipe_controlled) document.querySelector("[name='is_recipe_controlled']").value = "true";
   if(i?.active === false) document.querySelector("[name='active']").value = "false";
 
@@ -751,12 +767,14 @@ function openItemModal(i=null){
       name_ar: fd.get("name_ar") || null,
       category_id: fd.get("category_id") || null,
       primary_supplier_id: fd.get("primary_supplier_id") || null,
+      receiving_unit: fd.get("receiving_unit"),
+      cost_unit: fd.get("cost_unit"),
       purchase_package_type: fd.get("purchase_package_type") || null,
       purchase_package_qty: n("purchase_package_qty"),
       purchase_package_unit: fd.get("purchase_package_unit") || null,
       stock_unit: fd.get("stock_unit"),
-      has_dual_unit: fd.get("has_dual_unit") === "true",
-      secondary_unit: fd.get("secondary_unit") || null,
+      has_dual_unit: fd.get("cost_unit") !== fd.get("stock_unit"),
+      secondary_unit: fd.get("cost_unit") !== fd.get("stock_unit") ? fd.get("cost_unit") : null,
       reorder_level: n("reorder_level"),
       reorder_qty: n("reorder_qty"),
       default_purchase_price: n("default_purchase_price"),
