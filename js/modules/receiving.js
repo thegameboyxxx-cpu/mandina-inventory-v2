@@ -21,7 +21,7 @@ function branchAddress(){ const b = branchRecord(); return b.address || b.full_a
 function branchPhone(){ const b = branchRecord(); return b.phone || b.telephone || b.mobile || b.contact_phone || ""; }
 function companyName(){ return "Mandina Kitchen"; }
 function supplierEmail(s){ return s?.email || s?.company_email || s?.contact_email || ""; }
-function help(text){ return ` <span title="${esc(text)}" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;border:1px solid #aaa;color:#666;font-size:11px;font-weight:700;cursor:help;margin-left:4px;vertical-align:middle">i</span>`; }
+function help(text){ return `<div class="muted" style="font-size:11px;line-height:1.25;margin-top:3px">${esc(text)}</div>`; }
 
 function receivedLineValue(line){
   if(line.line_total !== null && line.line_total !== undefined) return Number(line.line_total || 0);
@@ -105,95 +105,6 @@ function renderTables(){
 function deliveryStatusForNote(note){
   const lines = receivingLines.filter(l => (l.grn_id || l.receiving_note_id) === note.id);
   let hasOver = false, hasShort = false, hasMatched = false;
-
-  for(const l of lines){
-    const ordered = Number(l.ordered_qty || 0);
-    const accepted = Number(l.accepted_qty || l.received_qty || 0);
-    const rejected = Number(l.rejected_qty || 0);
-
-    if(accepted > ordered) hasOver = true;
-    else if(accepted < ordered || rejected > 0) hasShort = true;
-    else hasMatched = true;
-  }
-
-  if(hasOver) return { label:"Over received", badge:"red", text:"Received more than ordered" };
-  if(hasShort) return { label:"Short received", badge:"gold", text:"Received less than ordered / rejected qty exists" };
-  if(hasMatched) return { label:"Matched", badge:"green", text:"Received as ordered" };
-
-  return { label:"Unknown", badge:"gold", text:"No line details found" };
 }
 
-function filteredNotes(){
-  const q = noteFilters.search.toLowerCase();
-
-  return receivingNotes.filter(n=>{
-    const po = notePo(n);
-    const d = (n.received_date || n.received_at || n.created_at || "").slice(0,10);
-
-    if(noteFilters.supplier_id && n.supplier_id !== noteFilters.supplier_id) return false;
-    if(noteFilters.payment_status && (n.payment_status || "unpaid") !== noteFilters.payment_status) return false;
-    if(noteFilters.from && d < noteFilters.from) return false;
-    if(noteFilters.to && d > noteFilters.to) return false;
-
-    return `${rnNo(n)} ${poNo(po)} ${JSON.stringify(n)}`.toLowerCase().includes(q);
-  });
-}
-
-function renderRecentNotes(){
-  const rows = filteredNotes();
-
-  const total = rows.reduce((a,n)=>a+Number(n.total_amount||0),0);
-  const paid = rows.reduce((a,n)=>a+Number(n.paid_amount||0),0);
-  const outstanding = rows.reduce((a,n)=>a+unpaidAmount(n),0);
-
-  $("rnSummary").innerHTML =
-    `Branch: <b>${esc(branchName())}</b> | Notes: <b>${rows.length}</b> | Total Received: <b>${money(total)}</b> | Paid: <b>${money(paid)}</b> | Outstanding Payable: <b>${money(outstanding)}</b>`;
-
-  $("recentReceiving").innerHTML = `<table>
-    <thead>
-      <tr>
-        <th>RN</th>
-        <th>PO</th>
-        <th>Branch</th>
-        <th>Supplier</th>
-        <th>Date</th>
-        <th>Delivery Status</th>
-        <th>Total</th>
-        <th>Paid</th>
-        <th>Payment</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      ${rows.map(rn=>{
-        const po = notePo(rn);
-        const ds = deliveryStatusForNote(rn);
-
-        return `<tr>
-          <td><b>${esc(rnNo(rn))}</b></td>
-          <td>${esc(poNo(po))}</td>
-          <td>${esc(branchName())}</td>
-          <td>${esc(supplierName(supplier(rn.supplier_id || po.supplier_id)))}</td>
-          <td>${esc((rn.received_date || rn.received_at || rn.created_at || "").slice(0,10))}</td>
-          <td><span class="badge ${esc(ds.badge)}">${esc(ds.label)}</span><div class="muted">${esc(ds.text)}</div></td>
-          <td>${money(rn.total_amount)}</td>
-          <td>${money(rn.paid_amount || 0)}</td>
-          <td>${paymentBadge(rn)}</td>
-          <td>
-            <button class="btn secondary small open-rn" data-id="${esc(rn.id)}">Open</button>
-            <button class="btn secondary small pay-rn" data-id="${esc(rn.id)}">Pay</button>
-            <button class="btn secondary small copy-rn" data-id="${esc(rn.id)}">Copy</button>
-            <button class="btn secondary small pdf-rn" data-id="${esc(rn.id)}">PDF</button>
-            <button class="btn secondary small email-rn" data-id="${esc(rn.id)}">Email</button>
-          </td>
-        </tr>`;
-      }).join("") || `<tr><td colspan="10" class="muted">No receiving notes found.</td></tr>`}
-    </tbody>
-  </table>`;
-
-  document.querySelectorAll(".copy-rn").forEach(btn=>btn.onclick=()=>copyReceivingNote(receivingNotes.find(rn=>rn.id===btn.dataset.id)));
-  document.querySelectorAll(".open-rn").forEach(btn=>btn.onclick=()=>openReceivingNote(receivingNotes.find(rn=>rn.id===btn.dataset.id)));
-  document.querySelectorAll(".pdf-rn").forEach(btn=>btn.onclick=()=>printReceivingNote(receivingNotes.find(rn=>rn.id===btn.dataset.id)));
-  document.querySelectorAll(".email-rn").forEach(btn=>btn.onclick=()=>emailReceivingNote(receivingNotes.find(rn=>rn.id===btn.dataset.id)));
-  document.querySelectorAll(".pay-rn").forEach(btn=>btn.onclick=()=>openPaymentModal(receivingNotes.find(rn=>rn.id===btn.dataset.id)));
-}
+function _dummyDelivery(){}
