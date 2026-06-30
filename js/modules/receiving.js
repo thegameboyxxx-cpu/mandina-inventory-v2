@@ -21,7 +21,7 @@ function branchAddress(){ const b = branchRecord(); return b.address || b.full_a
 function branchPhone(){ const b = branchRecord(); return b.phone || b.telephone || b.mobile || b.contact_phone || ""; }
 function companyName(){ return "Mandina Kitchen"; }
 function supplierEmail(s){ return s?.email || s?.company_email || s?.contact_email || ""; }
-function help(text){ return `<div class="muted" style="font-size:11px;line-height:1.25;margin-top:3px">${esc(text)}</div>`; }
+function help(text){ return ` <span title="${esc(text)}" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;border:1px solid #aaa;color:#666;font-size:11px;font-weight:700;cursor:help;margin-left:4px;vertical-align:middle">i</span>`; }
 
 function receivedLineValue(line){
   if(line.line_total !== null && line.line_total !== undefined) return Number(line.line_total || 0);
