@@ -1,5 +1,6 @@
 import { state, isManager } from "../state.js";
 import { $, esc, money, qty, showError, toast, openModal, closeModal } from "../utils.js";
+import { unitOptions, unitSelect } from "../units.js";
 import { safeSelect, insertRow, updateRow, deleteRows } from "../services/db.js";
 import { loadItems, loadItemDeps } from "./items.js";
 
@@ -271,7 +272,7 @@ function openRecipeModal(recipe = null) {
           <div><label>Arabic Name</label><input name="name_ar" class="input" value="${esc(recipe?.name_ar || "")}"></div>
           <div><label>Output Stock Item</label><select name="output_item_id" required>${optionItems(recipe?.output_item_id)}</select></div>
           <div><label>Standard Output Qty</label><input name="output_qty" type="number" step="0.001" class="input" required value="${esc(recipe?.output_qty ?? 1)}"></div>
-          <div><label>Output Unit</label><input name="output_unit" class="input" required value="${esc(recipe?.output_unit || outputUnitForItem(item(recipe?.output_item_id)) || "")}" placeholder="plate / kg / piece"></div>
+          <div><label>Output Unit</label>${unitSelect("output_unit", recipe?.output_unit || outputUnitForItem(item(recipe?.output_item_id)) || "", "required")}</div>
           <div><label>Status</label><select name="is_active"><option value="true">Active</option><option value="false">Inactive</option></select></div>
           <div class="full"><label>Notes</label><textarea name="notes" class="input" rows="2">${esc(recipe?.notes || "")}</textarea></div>
         </div>
@@ -301,7 +302,7 @@ function openRecipeModal(recipe = null) {
             return `<tr>
               <td><select class="recipe-input-item" data-idx="${idx}">${optionItems(line.item_id)}</select></td>
               <td><input type="number" step="0.001" class="input recipe-input-qty" data-idx="${idx}" value="${esc(inputQty(line) || "")}"></td>
-              <td><input class="input recipe-input-unit" data-idx="${idx}" value="${esc(line.unit || it?.stock_unit || "")}"></td>
+              <td><select class="recipe-input-unit" data-idx="${idx}">${unitOptions(line.unit || it?.stock_unit || "")}</select></td>
               <td><input type="radio" name="scaling_base" class="recipe-scale-base" data-idx="${idx}" ${line.is_scaling_base ? "checked" : ""}></td>
               <td class="muted">${it ? esc(stockText(it.id)) : ""}</td>
               <td><input class="input recipe-input-note" data-idx="${idx}" value="${esc(line.notes || "")}"></td>

@@ -1,1 +1,190 @@
-import{state,isManager}from"../state.js";import{$,esc,showError,toast,openModal,closeModal}from"../utils.js";import{safeSelect}from"../services/db.js";import{supplierName}from"./suppliers.js";export async function loadItemDeps(){const[s,c]=await Promise.all([safeSelect("suppliers","*").catch(()=>[]),safeSelect("item_categories","*",{order:"sort_order"}).catch(()=>[])]);state.suppliers=s;state.categories=c}export async function loadItems(){state.items=await safeSelect("items","*",{order:"created_at",ascending:false}).catch(()=>safeSelect("items","*"))}const cat=id=>state.categories.find(c=>c.id===id)?.name||"";const supp=id=>supplierName(state.suppliers.find(s=>s.id===id));const pack=i=>{const t=i.purchase_package_type||"",q=i.purchase_package_qty??"",u=i.purchase_package_unit||"";return(!t&&!q&&!u)?"":`${t} ${q} ${u}`.trim()};const rec=i=>pack(i)?`${i.receiving_unit||i.purchase_package_type||""} (${pack(i)})`:i.receiving_unit||i.purchase_package_type||"";const opts=(a,s,fn)=>'<option value="">-- Select --</option>'+a.map(x=>`<option value="${esc(x.id)}" ${x.id===s?'selected':''}>${esc(fn(x))}</option>`).join("");export async function renderItems(){if(!isManager())return $("content").innerHTML=showError("Staff users cannot access Items.");const c=$("content");c.innerHTML='<div class="card">Loading items...</div>';try{await loadItemDeps();await loadItems();c.innerHTML=`<div class="card"><div class="section-head"><h2>Items</h2><div class="toolbar"><input id="itemSearch" class="input" placeholder="Search item..."><button class="btn secondary" id="addCatBtn">+ Category</button><button class="btn" id="addItemBtn">+ Add Item</button></div></div><div id="itemsTable"></div></div>`;$("itemSearch").oninput=table;$("addItemBtn").onclick=()=>modal();$("addCatBtn").onclick=catModal;table()}catch(e){c.innerHTML=showError(e.message)}}function table(){const q=($("itemSearch")?.value||"").toLowerCase(),rows=state.items.filter(i=>JSON.stringify(i).toLowerCase().includes(q));$("itemsTable").innerHTML=`<table><thead><tr><th>Item</th><th>Category</th><th>Supplier</th><th>Receiving</th><th>Stock Unit</th><th>Cost Unit</th><th>Recipe</th><th></th></tr></thead><tbody>${rows.map(i=>`<tr><td><b>${esc(i.name)}</b><div class="muted">${esc(i.name_ar||"")}</div></td><td>${esc(cat(i.category_id))}</td><td>${esc(supp(i.primary_supplier_id))}</td><td>${esc(rec(i))}</td><td>${esc(i.stock_unit)}</td><td>${esc(i.cost_unit||i.secondary_unit||i.stock_unit)}</td><td>${i.is_recipe_controlled?'<span class="badge green">Yes</span>':'<span class="badge gold">Count only</span>'}</td><td><button class="btn secondary small edit-item" data-id="${esc(i.id)}">Edit</button></td></tr>`).join("")||'<tr><td colspan="8" class="muted">No items yet.</td></tr>'}</tbody></table>`;document.querySelectorAll(".edit-item").forEach(b=>b.onclick=()=>modal(state.items.find(i=>i.id===b.dataset.id)))}function modal(i=null){const edit=!!i;openModal(`<div class="modal-head"><h3>${edit?"Edit Item":"Add Item"}</h3><button class="btn secondary small" onclick="closeModal()">✕</button></div><form id="itemForm"><div class="modal-body"><div class="form-grid"><div><label>Item Name</label><input name="name" class="input" required value="${esc(i?.name||"")}"></div><div><label>Arabic Name</label><input name="name_ar" class="input" value="${esc(i?.name_ar||"")}"></div><div><label>Category</label><select name="category_id">${opts(state.categories,i?.category_id,c=>c.name)}</select></div><div><label>Primary Supplier</label><select name="primary_supplier_id">${opts(state.suppliers,i?.primary_supplier_id,supplierName)}</select></div><div><label>Receiving Unit</label><input name="receiving_unit" class="input" required value="${esc(i?.receiving_unit||i?.purchase_package_type||"")}"><div class="muted">What staff count when goods arrive.</div></div><div><label>Stock Unit</label><input name="stock_unit" class="input" required value="${esc(i?.stock_unit||"")}"><div class="muted">Stock, counts, sales, waste and reorder use this.</div></div><div><label>Cost / Billing Unit</label><input name="cost_unit" class="input" required value="${esc(i?.cost_unit||i?.secondary_unit||i?.stock_unit||"")}"><div class="muted">Supplier invoice unit.</div></div><div><label>Cost per Billing Unit</label><input name="default_purchase_price" type="number" step="0.01" class="input" value="${esc(i?.default_purchase_price??"")}"><div class="muted">Example: $18/kg, $50/bottle, $36/carton.</div></div><div><label>Purchase Package Type</label><select name="purchase_package_type">${["","bag","box","carton","tray","bucket","bottle","pack","roll","piece"].map(v=>`<option value="${v}" ${v===(i?.purchase_package_type||"")?'selected':''}>${v||"-- Select --"}</option>`).join("")}</select></div><div><label>Package Quantity</label><input name="purchase_package_qty" type="number" step="0.001" class="input" value="${esc(i?.purchase_package_qty??"")}"></div><div><label>Package Unit</label><input name="purchase_package_unit" class="input" value="${esc(i?.purchase_package_unit||"")}"></div><div><label>Reorder Level</label><input name="reorder_level" type="number" step="0.001" class="input" value="${esc(i?.reorder_level??"")}"><div class="muted">Based on Stock Unit.</div></div><div><label>Reorder Qty</label><input name="reorder_qty" type="number" step="0.001" class="input" value="${esc(i?.reorder_qty??"")}"><div class="muted">based on receiving/order unit.</div></div><div><label>Recipe/Sales Controlled?</label><select name="is_recipe_controlled"><option value="false">No - count report only</option><option value="true">Yes - sales variance alert</option></select></div><div><label>Status</label><select name="active"><option value="true">Active</option><option value="false">Inactive</option></select></div></div></div><div class="modal-foot"><button type="button" class="btn secondary" onclick="closeModal()">Cancel</button><button class="btn">Save</button></div></form>`);if(i?.is_recipe_controlled)document.querySelector("[name='is_recipe_controlled']").value="true";if(i?.active===false)document.querySelector("[name='active']").value="false";$("itemForm").onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target),n=k=>f.get(k)===""?null:Number(f.get(k));const p={name:f.get("name"),name_ar:f.get("name_ar")||null,category_id:f.get("category_id")||null,primary_supplier_id:f.get("primary_supplier_id")||null,receiving_unit:f.get("receiving_unit"),cost_unit:f.get("cost_unit"),purchase_package_type:f.get("purchase_package_type")||null,purchase_package_qty:n("purchase_package_qty"),purchase_package_unit:f.get("purchase_package_unit")||null,stock_unit:f.get("stock_unit"),has_dual_unit:f.get("cost_unit")!==f.get("stock_unit"),secondary_unit:f.get("cost_unit")!==f.get("stock_unit")?f.get("cost_unit"):null,reorder_level:n("reorder_level"),reorder_qty:n("reorder_qty"),default_purchase_price:n("default_purchase_price"),is_recipe_controlled:f.get("is_recipe_controlled")==="true",active:f.get("active")==="true",updated_at:new Date().toISOString()};if(!edit)p.created_by=state.user.id;const r=edit?await state.db.from("items").update(p).eq("id",i.id):await state.db.from("items").insert(p);if(r.error)return toast(r.error.message,"error");toast("Item saved.","ok");closeModal();renderItems()}}function catModal(){openModal(`<div class="modal-head"><h3>Add Category</h3><button class="btn secondary small" onclick="closeModal()">✕</button></div><form id="catForm"><div class="modal-body"><label>Category Name</label><input name="name" class="input" required></div><div class="modal-foot"><button type="button" class="btn secondary" onclick="closeModal()">Cancel</button><button class="btn">Create</button></div></form>`);$("catForm").onsubmit=async e=>{e.preventDefault();const name=new FormData(e.target).get("name"),r=await state.db.from("item_categories").insert({name});if(r.error)return toast(r.error.message,"error");toast("Category created.","ok");closeModal();renderItems()}}
+import { state, isManager } from "../state.js";
+import { $, esc, showError, toast, openModal, closeModal } from "../utils.js";
+import { unitSelect } from "../units.js";
+import { safeSelect } from "../services/db.js";
+import { supplierName } from "./suppliers.js";
+
+export async function loadItemDeps() {
+  const [suppliers, categories] = await Promise.all([
+    safeSelect("suppliers", "*").catch(() => []),
+    safeSelect("item_categories", "*", { order: "sort_order" }).catch(() => []),
+  ]);
+  state.suppliers = suppliers;
+  state.categories = categories;
+}
+
+export async function loadItems() {
+  state.items = await safeSelect("items", "*", { order: "created_at", ascending: false }).catch(() => safeSelect("items", "*"));
+}
+
+const categoryName = id => state.categories.find(c => c.id === id)?.name || "";
+const supplierLabel = id => supplierName(state.suppliers.find(s => s.id === id));
+const options = (rows, selected, labelFn) => '<option value="">-- Select --</option>' + rows.map(row => (
+  `<option value="${esc(row.id)}" ${row.id === selected ? "selected" : ""}>${esc(labelFn(row))}</option>`
+)).join("");
+
+function packageText(item) {
+  const type = item.purchase_package_type || "";
+  const amount = item.purchase_package_qty ?? "";
+  const unit = item.purchase_package_unit || "";
+  return (!type && !amount && !unit) ? "" : `${type} ${amount} ${unit}`.trim();
+}
+
+function receivingText(item) {
+  return packageText(item)
+    ? `${item.receiving_unit || item.purchase_package_type || ""} (${packageText(item)})`
+    : item.receiving_unit || item.purchase_package_type || "";
+}
+
+export async function renderItems() {
+  if (!isManager()) return $("content").innerHTML = showError("Staff users cannot access Items.");
+
+  const content = $("content");
+  content.innerHTML = '<div class="card">Loading items...</div>';
+
+  try {
+    await loadItemDeps();
+    await loadItems();
+    content.innerHTML = `
+      <div class="card">
+        <div class="section-head">
+          <h2>Items</h2>
+          <div class="toolbar">
+            <input id="itemSearch" class="input" placeholder="Search item...">
+            <button class="btn secondary" id="addCatBtn">+ Category</button>
+            <button class="btn" id="addItemBtn">+ Add Item</button>
+          </div>
+        </div>
+        <div id="itemsTable"></div>
+      </div>
+    `;
+    $("itemSearch").oninput = renderItemsTable;
+    $("addItemBtn").onclick = () => openItemModal();
+    $("addCatBtn").onclick = openCategoryModal;
+    renderItemsTable();
+  } catch (e) {
+    content.innerHTML = showError(e.message);
+  }
+}
+
+function renderItemsTable() {
+  const q = ($("itemSearch")?.value || "").toLowerCase();
+  const rows = state.items.filter(item => JSON.stringify(item).toLowerCase().includes(q));
+
+  $("itemsTable").innerHTML = `
+    <table>
+      <thead><tr><th>Item</th><th>Category</th><th>Supplier</th><th>Receiving</th><th>Stock Unit</th><th>Cost Unit</th><th>Recipe</th><th></th></tr></thead>
+      <tbody>
+        ${rows.map(item => `<tr>
+          <td><b>${esc(item.name)}</b><div class="muted">${esc(item.name_ar || "")}</div></td>
+          <td>${esc(categoryName(item.category_id))}</td>
+          <td>${esc(supplierLabel(item.primary_supplier_id))}</td>
+          <td>${esc(receivingText(item))}</td>
+          <td>${esc(item.stock_unit)}</td>
+          <td>${esc(item.cost_unit || item.secondary_unit || item.stock_unit)}</td>
+          <td>${item.is_recipe_controlled ? '<span class="badge green">Yes</span>' : '<span class="badge gold">Count only</span>'}</td>
+          <td><button class="btn secondary small edit-item" data-id="${esc(item.id)}">Edit</button></td>
+        </tr>`).join("") || '<tr><td colspan="8" class="muted">No items yet.</td></tr>'}
+      </tbody>
+    </table>
+  `;
+
+  document.querySelectorAll(".edit-item").forEach(button => {
+    button.onclick = () => openItemModal(state.items.find(item => item.id === button.dataset.id));
+  });
+}
+
+function openItemModal(item = null) {
+  const edit = !!item;
+  openModal(`
+    <div class="modal-head">
+      <h3>${edit ? "Edit Item" : "Add Item"}</h3>
+      <button class="btn secondary small" onclick="closeModal()">x</button>
+    </div>
+    <form id="itemForm">
+      <div class="modal-body">
+        <div class="form-grid">
+          <div><label>Item Name</label><input name="name" class="input" required value="${esc(item?.name || "")}"></div>
+          <div><label>Arabic Name</label><input name="name_ar" class="input" value="${esc(item?.name_ar || "")}"></div>
+          <div><label>Category</label><select name="category_id">${options(state.categories, item?.category_id, c => c.name)}</select></div>
+          <div><label>Primary Supplier</label><select name="primary_supplier_id">${options(state.suppliers, item?.primary_supplier_id, supplierName)}</select></div>
+          <div><label>Receiving Unit</label>${unitSelect("receiving_unit", item?.receiving_unit || item?.purchase_package_type || "", "required")}<div class="muted">What staff count when goods arrive.</div></div>
+          <div><label>Stock Unit</label>${unitSelect("stock_unit", item?.stock_unit || "", "required")}<div class="muted">Stock, counts, sales, waste and reorder use this.</div></div>
+          <div><label>Cost / Billing Unit</label>${unitSelect("cost_unit", item?.cost_unit || item?.secondary_unit || item?.stock_unit || "", "required")}<div class="muted">Supplier invoice unit.</div></div>
+          <div><label>Cost per Billing Unit</label><input name="default_purchase_price" type="number" step="0.01" class="input" value="${esc(item?.default_purchase_price ?? "")}"><div class="muted">Example: $18/kg, $50/bottle, $36/carton.</div></div>
+          <div><label>Purchase Package Type</label><select name="purchase_package_type">${["", "bag", "box", "carton", "tray", "bucket", "bottle", "pack", "roll", "piece"].map(v => `<option value="${v}" ${v === (item?.purchase_package_type || "") ? "selected" : ""}>${v || "-- Select --"}</option>`).join("")}</select></div>
+          <div><label>Package Quantity</label><input name="purchase_package_qty" type="number" step="0.001" class="input" value="${esc(item?.purchase_package_qty ?? "")}"></div>
+          <div><label>Package Unit</label>${unitSelect("purchase_package_unit", item?.purchase_package_unit || "")}</div>
+          <div><label>Reorder Level</label><input name="reorder_level" type="number" step="0.001" class="input" value="${esc(item?.reorder_level ?? "")}"><div class="muted">Based on Stock Unit.</div></div>
+          <div><label>Reorder Qty</label><input name="reorder_qty" type="number" step="0.001" class="input" value="${esc(item?.reorder_qty ?? "")}"><div class="muted">Based on receiving/order unit.</div></div>
+          <div><label>Recipe/Sales Controlled?</label><select name="is_recipe_controlled"><option value="false">No - count report only</option><option value="true">Yes - sales variance alert</option></select></div>
+          <div><label>Status</label><select name="active"><option value="true">Active</option><option value="false">Inactive</option></select></div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn secondary" onclick="closeModal()">Cancel</button>
+        <button class="btn">Save</button>
+      </div>
+    </form>
+  `);
+
+  if (item?.is_recipe_controlled) document.querySelector("[name='is_recipe_controlled']").value = "true";
+  if (item?.active === false) document.querySelector("[name='active']").value = "false";
+
+  $("itemForm").onsubmit = async e => {
+    e.preventDefault();
+    const form = new FormData(e.target);
+    const numberOrNull = key => form.get(key) === "" ? null : Number(form.get(key));
+    const stockUnit = form.get("stock_unit");
+    const costUnit = form.get("cost_unit");
+    const payload = {
+      name: form.get("name"),
+      name_ar: form.get("name_ar") || null,
+      category_id: form.get("category_id") || null,
+      primary_supplier_id: form.get("primary_supplier_id") || null,
+      receiving_unit: form.get("receiving_unit"),
+      cost_unit: costUnit,
+      purchase_package_type: form.get("purchase_package_type") || null,
+      purchase_package_qty: numberOrNull("purchase_package_qty"),
+      purchase_package_unit: form.get("purchase_package_unit") || null,
+      stock_unit: stockUnit,
+      has_dual_unit: costUnit !== stockUnit,
+      secondary_unit: costUnit !== stockUnit ? costUnit : null,
+      reorder_level: numberOrNull("reorder_level"),
+      reorder_qty: numberOrNull("reorder_qty"),
+      default_purchase_price: numberOrNull("default_purchase_price"),
+      is_recipe_controlled: form.get("is_recipe_controlled") === "true",
+      active: form.get("active") === "true",
+      updated_at: new Date().toISOString(),
+    };
+
+    if (!edit) payload.created_by = state.user.id;
+    const result = edit
+      ? await state.db.from("items").update(payload).eq("id", item.id)
+      : await state.db.from("items").insert(payload);
+
+    if (result.error) return toast(result.error.message, "error");
+    toast("Item saved.", "ok");
+    closeModal();
+    renderItems();
+  };
+}
+
+function openCategoryModal() {
+  openModal(`
+    <div class="modal-head"><h3>Add Category</h3><button class="btn secondary small" onclick="closeModal()">x</button></div>
+    <form id="catForm">
+      <div class="modal-body"><label>Category Name</label><input name="name" class="input" required></div>
+      <div class="modal-foot"><button type="button" class="btn secondary" onclick="closeModal()">Cancel</button><button class="btn">Create</button></div>
+    </form>
+  `);
+  $("catForm").onsubmit = async e => {
+    e.preventDefault();
+    const name = new FormData(e.target).get("name");
+    const result = await state.db.from("item_categories").insert({ name });
+    if (result.error) return toast(result.error.message, "error");
+    toast("Category created.", "ok");
+    closeModal();
+    renderItems();
+  };
+}
