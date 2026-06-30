@@ -265,6 +265,7 @@ function openRecipeModal(recipe=null){
       batch_main_input_item_id: scaleBase?.item_id || null,
       batch_main_input_qty: scaleBase ? Number(scaleBase.qty || 1) : Number(fd.get("batch_main_input_qty") || 1),
       base_input_qty: scaleBase ? Number(scaleBase.qty || 1) : Number(fd.get("batch_main_input_qty") || 1),
+      base_input_qty: scaleBase ? Number(scaleBase.qty || 1) : Number(fd.get("batch_main_input_qty") || 1),
       is_active: true,
       notes: fd.get("notes") || null,
       updated_at: new Date().toISOString()
