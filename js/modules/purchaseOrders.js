@@ -184,25 +184,29 @@ async function openPoModal(po=null){
   let saveMode = "draft";
 
   function renderLines(){
+    const reviewCols = isEdit;
     $("poLinesBox").innerHTML = `<table><thead><tr>
-      <th>Item${help("Choose item to order.")}</th>
-      <th>Current Stock${help("Shown in stock unit, e.g. kg.")}</th>
-      <th>Order Qty${help("Quantity ordered from supplier, usually receiving/order unit.")}</th>
-      <th>Received${help("Quantity received so far in order unit.")}</th>
-      <th>Remaining${help("Order qty minus received qty.")}</th>
-      <th>Order Unit${help("Supplier receiving unit, e.g. bag/piece/bottle.")}</th>
-      <th>Billing Unit${help("Invoice unit, e.g. bag or kg.")}</th>
-      <th>Cost/Billing Unit${help("Price per billing unit.")}</th>
+      <th style="min-width:260px">Item${help("Choose item to order.")}</th>
+      <th>Current Stock${help("Shown in stock unit.")}</th>
+      <th style="min-width:110px">Order Qty${help("Quantity ordered from supplier.")}</th>
+      ${reviewCols ? `<th>Received${help("Received so far.")}</th><th>Remaining${help("Qty still not received.")}</th>` : ""}
+      <th>Order Unit${help("Supplier receiving unit.")}</th>
+      <th>Billing Unit${help("Invoice unit.")}</th>
+      <th style="min-width:120px">Cost/Billing Unit${help("Price per billing unit.")}</th>
       <th>PO Total${help("Pending if final billing qty is known only at receiving.")}</th>
-      <th>Received Value${help("Actual receiving value based on billing qty.")}</th>
-      <th>Notes</th><th></th></tr></thead><tbody>
-    ${localLines.map((l,idx)=>{ const it=getItem(l.item_id), unit=l.unit||l.order_unit||it?.receiving_unit||"", cost=l.cost_unit||it?.cost_unit||"", recQty=isEdit?receivedQtyForLine(po.id,l.id):0, remain=Math.max(0,Number(l.ordered_qty||0)-recQty), recVal=isEdit?receivedValueForLine(po.id,l.id):0, display={...l,unit,cost_unit:cost}; return `<tr>
-      <td><select data-idx="${idx}" class="po-item" ${locked?"disabled":""}><option value="">-- Select --</option>${state.items.map(i=>`<option value="${esc(i.id)}" ${i.id===l.item_id?"selected":""}>${esc(itemLabel(i))}</option>`).join("")}</select></td>
+      ${reviewCols ? `<th>Received Value${help("Actual value received.")}</th>` : ""}
+      <th style="min-width:160px">Notes</th><th></th></tr></thead><tbody>
+    ${localLines.map((l,idx)=>{
+      const it=getItem(l.item_id), unit=l.unit||l.order_unit||it?.receiving_unit||"", cost=l.cost_unit||it?.cost_unit||"", recQty=isEdit?receivedQtyForLine(po.id,l.id):0, remain=Math.max(0,Number(l.ordered_qty||0)-recQty), recVal=isEdit?receivedValueForLine(po.id,l.id):0, display={...l,unit,cost_unit:cost};
+      return `<tr>
+      <td><select style="min-width:260px;width:100%" data-idx="${idx}" class="po-item" ${locked?"disabled":""}><option value="">-- Select --</option>${state.items.map(i=>`<option value="${esc(i.id)}" ${i.id===l.item_id?"selected":""}>${esc(itemLabel(i))}</option>`).join("")}</select></td>
       <td class="muted">${it ? currentStockText(it.id) : ""}</td>
       <td><input type="number" step="0.001" class="input po-qty" data-idx="${idx}" value="${esc(l.ordered_qty ?? "")}" ${locked?"disabled":""}></td>
-      <td>${qty(recQty)}</td><td>${qty(remain)}</td><td>${esc(unit)}</td><td>${esc(cost)}</td>
+      ${reviewCols ? `<td>${qty(recQty)}</td><td>${qty(remain)}</td>` : ""}
+      <td>${esc(unit)}</td><td>${esc(cost)}</td>
       <td><input type="number" step="0.01" class="input po-price" data-idx="${idx}" value="${esc(l.unit_price ?? 0)}" ${locked?"disabled":""}></td>
-      <td class="po-line-total">${lineTotalText(display)}</td><td>${money(recVal)}</td>
+      <td class="po-line-total">${lineTotalText(display)}</td>
+      ${reviewCols ? `<td>${money(recVal)}</td>` : ""}
       <td><input class="input po-note" data-idx="${idx}" value="${esc(l.notes || "")}" ${locked?"disabled":""}></td>
       <td>${locked ? "" : `<button type="button" class="btn red small po-remove" data-idx="${idx}">×</button>`}</td>
     </tr>`; }).join("")}</tbody></table>`;

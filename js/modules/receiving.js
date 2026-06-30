@@ -5,7 +5,7 @@ import { loadItems, loadItemDeps } from "./items.js";
 import { supplierName } from "./suppliers.js";
 
 let filters = { supplier_id: "", search: "" };
-let noteFilters = { supplier_id:"", from:"", to:"", search:"", payment_status:"" };
+let noteFilters = { supplier_id:"", from:"", to:"", search:"", payment_status:"", delivery_status:"", item_id:"" };
 let poList = [], items = [], suppliers = [], receivingNotes = [], receivingLines = [];
 
 const sameUnit = (a,b)=>String(a||"").toLowerCase().trim()===String(b||"").toLowerCase().trim();
@@ -72,6 +72,8 @@ export async function renderReceiving(){
         <div class="toolbar" style="margin-bottom:12px;flex-wrap:wrap">
           <select id="rnSupplier"><option value="">All suppliers</option>${suppliers.map(s=>`<option value="${esc(s.id)}">${esc(supplierName(s))}</option>`).join("")}</select>
           <select id="rnPayment"><option value="">All payment</option><option value="unpaid">Unpaid</option><option value="partial">Partial</option><option value="paid">Paid</option></select>
+          <select id="rnDeliveryStatus"><option value="">All delivery</option><option value="completed">Completed PO</option><option value="partial">Partial</option><option value="matched">Matched delivery</option><option value="over">Over received</option></select>
+          <select id="rnItemFilter"><option value="">All items</option>${items.map(i=>`<option value="${esc(i.id)}">${esc(itemLabel(i))}</option>`).join("")}</select>
           <input id="rnFrom" type="date" class="input">
           <input id="rnTo" type="date" class="input">
           <input id="rnSearch" class="input" placeholder="Search RN / PO number...">
@@ -82,9 +84,11 @@ export async function renderReceiving(){
     $("recSupplier").value=filters.supplier_id; $("recSearch").value=filters.search;
     $("recSupplier").onchange=e=>{filters.supplier_id=e.target.value; renderTables();};
     $("recSearch").oninput=e=>{filters.search=e.target.value; renderTables();};
-    $("rnSupplier").value=noteFilters.supplier_id; $("rnFrom").value=noteFilters.from; $("rnTo").value=noteFilters.to; $("rnSearch").value=noteFilters.search; $("rnPayment").value=noteFilters.payment_status;
+    $("rnSupplier").value=noteFilters.supplier_id; $("rnFrom").value=noteFilters.from; $("rnTo").value=noteFilters.to; $("rnSearch").value=noteFilters.search; $("rnPayment").value=noteFilters.payment_status; $("rnDeliveryStatus").value=noteFilters.delivery_status; $("rnItemFilter").value=noteFilters.item_id;
     $("rnSupplier").onchange=e=>{noteFilters.supplier_id=e.target.value; renderRecentNotes();};
     $("rnPayment").onchange=e=>{noteFilters.payment_status=e.target.value; renderRecentNotes();};
+    $("rnDeliveryStatus").onchange=e=>{noteFilters.delivery_status=e.target.value; renderRecentNotes();};
+    $("rnItemFilter").onchange=e=>{noteFilters.item_id=e.target.value; renderRecentNotes();};
     $("rnFrom").onchange=e=>{noteFilters.from=e.target.value; renderRecentNotes();};
     $("rnTo").onchange=e=>{noteFilters.to=e.target.value; renderRecentNotes();};
     $("rnSearch").oninput=e=>{noteFilters.search=e.target.value; renderRecentNotes();};
@@ -104,92 +108,87 @@ function renderTables(){
 
 function deliveryStatusForNote(note){
   const lines = receivingLines.filter(l => (l.grn_id || l.receiving_note_id) === note.id);
-  let hasOver = false, hasShort = false, hasMatched = false;
+  const po = notePo(note);
+  if(!lines.length) return { key:"unknown", label:"Unknown", badge:"gold", text:"No line details found" };
+
+  let hasOver = false;
+  let completesAnyLine = false;
+  let allNoteLinesComplete = true;
+  let hasShortThisDelivery = false;
 
   for(const l of lines){
+    const poLineId = l.po_line_id || l.purchase_order_line_id;
     const ordered = Number(l.ordered_qty || 0);
-    const accepted = Number(l.accepted_qty || l.received_qty || 0);
+    const acceptedNow = Number(l.accepted_qty || l.received_qty || 0);
     const rejected = Number(l.rejected_qty || 0);
+    const noteTime = new Date(note.created_at || note.received_date || note.received_at || 0).getTime();
 
-    if(accepted > ordered) hasOver = true;
-    else if(accepted < ordered || rejected > 0) hasShort = true;
-    else hasMatched = true;
+    const previousAccepted = receivingLines
+      .filter(x => {
+        if((x.po_line_id || x.purchase_order_line_id) !== poLineId) return false;
+        const rn = receivingNotes.find(n => n.id === (x.grn_id || x.receiving_note_id));
+        if(!rn) return false;
+        if((rn.po_id || rn.purchase_order_id) !== (po.id || note.po_id || note.purchase_order_id)) return false;
+        const rnTime = new Date(rn.created_at || rn.received_date || rn.received_at || 0).getTime();
+        return rnTime < noteTime;
+      })
+      .reduce((sum,x)=>sum+Number(x.accepted_qty || x.received_qty || 0),0);
+
+    const totalAfterThisNote = previousAccepted + acceptedNow;
+    const remainingBefore = Math.max(0, ordered - previousAccepted);
+
+    if(acceptedNow > remainingBefore) hasOver = true;
+    if(rejected > 0 || acceptedNow < remainingBefore) hasShortThisDelivery = true;
+    if(totalAfterThisNote >= ordered && ordered > 0) completesAnyLine = true;
+    if(ordered > 0 && totalAfterThisNote < ordered) allNoteLinesComplete = false;
   }
 
-  if(hasOver) return { label:"Over received", badge:"red", text:"Received more than ordered" };
-  if(hasShort) return { label:"Short received", badge:"gold", text:"Received less than ordered / rejected qty exists" };
-  if(hasMatched) return { label:"Matched", badge:"green", text:"Received as ordered" };
-
-  return { label:"Unknown", badge:"gold", text:"No line details found" };
+  if(hasOver) return { key:"over", label:"Over received", badge:"red", text:"Received more than remaining PO qty" };
+  if(completesAnyLine && allNoteLinesComplete) return { key:"completed", label:"Completed PO", badge:"green", text:"This receiving completed the ordered qty" };
+  if(hasShortThisDelivery) return { key:"partial", label:"Partial", badge:"gold", text:"This receiving did not complete the PO qty" };
+  return { key:"matched", label:"Matched delivery", badge:"blue", text:"This delivery matched the remaining qty for its lines" };
 }
 
 function filteredNotes(){
-  const q = noteFilters.search.toLowerCase();
-
+  const q=noteFilters.search.toLowerCase();
   return receivingNotes.filter(n=>{
-    const po = notePo(n);
-    const d = (n.received_date || n.received_at || n.created_at || "").slice(0,10);
-
-    if(noteFilters.supplier_id && n.supplier_id !== noteFilters.supplier_id) return false;
-    if(noteFilters.payment_status && (n.payment_status || "unpaid") !== noteFilters.payment_status) return false;
+    const po=notePo(n), d=(n.received_date||n.received_at||n.created_at||"").slice(0,10);
+    if(noteFilters.supplier_id && n.supplier_id!==noteFilters.supplier_id) return false;
+    if(noteFilters.payment_status && (n.payment_status || "unpaid")!==noteFilters.payment_status) return false;
+    if(noteFilters.delivery_status && deliveryStatusForNote(n).key !== noteFilters.delivery_status) return false;
+    if(noteFilters.item_id){
+      const lines = receivingLines.filter(l => (l.grn_id || l.receiving_note_id) === n.id);
+      if(!lines.some(l => l.item_id === noteFilters.item_id)) return false;
+    }
     if(noteFilters.from && d < noteFilters.from) return false;
     if(noteFilters.to && d > noteFilters.to) return false;
-
     return `${rnNo(n)} ${poNo(po)} ${JSON.stringify(n)}`.toLowerCase().includes(q);
   });
 }
 
 function renderRecentNotes(){
-  const rows = filteredNotes();
+  const rows=filteredNotes();
+  const total=rows.reduce((a,n)=>a+Number(n.total_amount||0),0);
+  const paid=rows.reduce((a,n)=>a+Number(n.paid_amount||0),0);
+  const outstanding=rows.reduce((a,n)=>a+unpaidAmount(n),0);
+  $("rnSummary").innerHTML=`Notes: <b>${rows.length}</b> | Total Received: <b>${money(total)}</b> | Paid: <b>${money(paid)}</b> | Outstanding Payable: <b>${money(outstanding)}</b>`;
 
-  const total = rows.reduce((a,n)=>a+Number(n.total_amount||0),0);
-  const paid = rows.reduce((a,n)=>a+Number(n.paid_amount||0),0);
-  const outstanding = rows.reduce((a,n)=>a+unpaidAmount(n),0);
-
-  $("rnSummary").innerHTML =
-    `Branch: <b>${esc(branchName())}</b> | Notes: <b>${rows.length}</b> | Total Received: <b>${money(total)}</b> | Paid: <b>${money(paid)}</b> | Outstanding Payable: <b>${money(outstanding)}</b>`;
-
-  $("recentReceiving").innerHTML = `<table>
-    <thead>
-      <tr>
-        <th>RN</th>
-        <th>PO</th>
-        <th>Branch</th>
-        <th>Supplier</th>
-        <th>Date</th>
-        <th>Delivery Status</th>
-        <th>Total</th>
-        <th>Paid</th>
-        <th>Payment</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      ${rows.map(rn=>{
-        const po = notePo(rn);
-        const ds = deliveryStatusForNote(rn);
-
-        return `<tr>
-          <td><b>${esc(rnNo(rn))}</b></td>
-          <td>${esc(poNo(po))}</td>
-          <td>${esc(branchName())}</td>
-          <td>${esc(supplierName(supplier(rn.supplier_id || po.supplier_id)))}</td>
-          <td>${esc((rn.received_date || rn.received_at || rn.created_at || "").slice(0,10))}</td>
-          <td><span class="badge ${esc(ds.badge)}">${esc(ds.label)}</span><div class="muted">${esc(ds.text)}</div></td>
-          <td>${money(rn.total_amount)}</td>
-          <td>${money(rn.paid_amount || 0)}</td>
-          <td>${paymentBadge(rn)}</td>
-          <td>
-            <button class="btn secondary small open-rn" data-id="${esc(rn.id)}">Open</button>
-            <button class="btn secondary small pay-rn" data-id="${esc(rn.id)}">Pay</button>
-            <button class="btn secondary small copy-rn" data-id="${esc(rn.id)}">Copy</button>
-            <button class="btn secondary small pdf-rn" data-id="${esc(rn.id)}">PDF</button>
-            <button class="btn secondary small email-rn" data-id="${esc(rn.id)}">Email</button>
-          </td>
-        </tr>`;
-      }).join("") || `<tr><td colspan="10" class="muted">No receiving notes found.</td></tr>`}
-    </tbody>
-  </table>`;
+  $("recentReceiving").innerHTML=`<table><thead><tr><th>RN</th><th>Purchase Order</th><th>Supplier</th><th>Date</th><th>Delivery Status</th><th>Total</th><th>Paid</th><th>Payment</th><th></th></tr></thead><tbody>
+  ${rows.map(rn=>{
+    const po=notePo(rn);
+    const ds=deliveryStatusForNote(rn);
+    return `<tr>
+      <td><b>${esc(rnNo(rn))}</b></td>
+      <td><b>${esc(poNo(po))}</b><div class="muted">${esc(po.status || "")}</div></td>
+      <td>${esc(supplierName(supplier(rn.supplier_id||po.supplier_id)))}</td>
+      <td>${esc((rn.received_date||rn.received_at||rn.created_at||"").slice(0,10))}</td>
+      <td><span class="badge ${esc(ds.badge)}">${esc(ds.label)}</span><div class="muted">${esc(ds.text)}</div></td>
+      <td>${money(rn.total_amount)}</td>
+      <td>${money(rn.paid_amount||0)}</td>
+      <td>${paymentBadge(rn)}</td>
+      <td><button class="btn secondary small open-rn" data-id="${esc(rn.id)}">Open</button><button class="btn secondary small pay-rn" data-id="${esc(rn.id)}">Pay</button><button class="btn secondary small copy-rn" data-id="${esc(rn.id)}">Copy</button><button class="btn secondary small pdf-rn" data-id="${esc(rn.id)}">PDF</button><button class="btn secondary small email-rn" data-id="${esc(rn.id)}">Email</button></td>
+    </tr>`;
+  }).join("")||'<tr><td colspan="9" class="muted">No receiving notes found.</td></tr>'}</tbody></table>`;
 
   document.querySelectorAll(".copy-rn").forEach(btn=>btn.onclick=()=>copyReceivingNote(receivingNotes.find(rn=>rn.id===btn.dataset.id)));
   document.querySelectorAll(".open-rn").forEach(btn=>btn.onclick=()=>openReceivingNote(receivingNotes.find(rn=>rn.id===btn.dataset.id)));
