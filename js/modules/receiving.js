@@ -16,6 +16,65 @@ const poNo = po => po?.po_number || `PO-${String(po?.id || "").slice(0,8)}`;
 const rnNo = rn => rn?.grn_number || rn?.receiving_number || `RN-${String(rn?.id || "").slice(0,8)}`;
 const itemLabel = i => i ? `${i.name}${i.name_ar ? " / " + i.name_ar : ""}` : "Item";
 
+function firstDefined(...vals){
+  return vals.find(v => v !== undefined && v !== null && v !== "");
+}
+
+function itemPackageQty(it){
+  return Number(firstDefined(
+    it?.purchase_package_qty,
+    it?.purchase_package_quantity,
+    it?.package_qty,
+    it?.package_quantity,
+    it?.package_size,
+    1
+  ) || 1);
+}
+
+function itemPackageUnit(it){
+  return firstDefined(
+    it?.purchase_package_unit,
+    it?.package_unit,
+    it?.stock_unit,
+    ""
+  );
+}
+
+function itemReceivingUnit(it){
+  return firstDefined(
+    it?.receiving_unit,
+    it?.purchase_package_type,
+    it?.order_unit,
+    it?.stock_unit,
+    ""
+  );
+}
+
+function stockQtyFromReceived(line){
+  const it = item(line.item_id);
+  const accepted = Number(line.accepted_qty || 0);
+  const receiveUnit = line.unit || itemReceivingUnit(it);
+  const stockUnit = it?.stock_unit || line.stock_unit || receiveUnit;
+  const packageQty = itemPackageQty(it);
+  const packageUnit = itemPackageUnit(it);
+
+  // If receiving unit already matches stock unit, no conversion needed.
+  if(sameUnit(receiveUnit, stockUnit)) return accepted;
+
+  // If receiving in package/order unit and package quantity is expressed in stock unit,
+  // convert e.g. 100 bag × 20 kg = 2000 kg.
+  if(packageQty > 0 && sameUnit(packageUnit, stockUnit)) return accepted * packageQty;
+
+  // Fallback: do not guess. Keep previous behaviour.
+  return accepted;
+}
+
+function stockQtyTextFromReceived(line){
+  const it = item(line.item_id);
+  const stockUnit = it?.stock_unit || line.stock_unit || line.unit || "";
+  return `${qty(stockQtyFromReceived(line))} ${stockUnit}`;
+}
+
 function branchRecord(){
   return (state.branches || []).find(b => b.id === state.currentBranchId) || {};
 }
@@ -32,7 +91,7 @@ function branchPhone(){
   return b.phone || b.telephone || b.mobile || b.contact_phone || "";
 }
 function companyName(){
-  return "Mandina Kitchen";
+  return "Mandina Kitchen | مدينة كيتشن";
 }
 function poPhone(){
   return "0404 722 009";
@@ -45,6 +104,7 @@ function docHeader(title, number){
     <div class="doc-header">
       <div>
         <div class="logo-mark">Mandina Kitchen</div>
+        <div class="arabic-logo">مدينة كيتشن</div>
         <div class="muted">${esc(companyName())}</div>
       </div>
       <div style="text-align:right">
@@ -180,13 +240,13 @@ async function openReceivingModal(po){
   const local=poLines.map(line=>{const it=item(line.item_id),unit=line.order_unit||line.unit||it?.receiving_unit||it?.stock_unit||"",costUnit=line.cost_unit||it?.cost_unit||it?.stock_unit||unit,already=receivedBefore(po.id,line.id),ordered=Number(line.ordered_qty||0);return{po_line_id:line.id,item_id:line.item_id,item_name:itemLabel(it),ordered_qty:ordered,received_before_qty:already,delivered_qty:0,accepted_qty:0,rejected_qty:0,unit,stock_unit:it?.stock_unit||unit,cost_unit:costUnit,actual_cost_qty:sameUnit(unit,costUnit)?null:0,unit_price:Number(line.unit_price||0),reject_reason:""};});
   openModal(`<div class="modal-head"><h3>Receive ${esc(poNo(po))}</h3><button class="btn secondary small" onclick="closeModal()">✕</button></div><form id="receivingForm"><div class="modal-body"><div class="form-grid"><div><label>Branch</label><input class="input" value="${esc(branchName())}" disabled></div><div><label>Supplier</label><input class="input" value="${esc(supplierName(supplier(po.supplier_id)))}" disabled></div><div><label>Receiving Date</label><input name="received_date" type="date" class="input" value="${new Date().toISOString().slice(0,10)}"></div><div class="full"><label>Receiving Notes</label><textarea name="notes" class="input" rows="2"></textarea></div></div><div style="margin-top:16px" id="receivingLinesBox"></div><div style="text-align:right;font-weight:900;font-size:20px;margin-top:14px">Receiving Total: <span id="receivingTotal">$0.00</span></div></div><div class="modal-foot"><button type="button" class="btn secondary" onclick="closeModal()">Cancel</button><button class="btn green">Save Receiving</button></div></form>`);
   const calculateTotal=()=>local.reduce((s,l)=>s+(sameUnit(l.unit,l.cost_unit)?Number(l.accepted_qty||0)*Number(l.unit_price||0):Number(l.actual_cost_qty||0)*Number(l.unit_price||0)),0);
-  function drawLines(){const anyCost=local.some(l=>!sameUnit(l.unit,l.cost_unit));$("receivingLinesBox").innerHTML=`<table><thead><tr><th>Item</th><th>Ordered</th><th>Received Before</th><th>Delivered Now</th><th>Accepted</th><th>Rejected</th>${anyCost?"<th>Billing Qty</th>":""}<th>Total</th><th>Reject Reason</th></tr></thead><tbody>${local.map((line,index)=>{const needs=!sameUnit(line.unit,line.cost_unit);return `<tr data-row="${index}"><td><b>${esc(line.item_name)}</b><div class="muted">Receive in ${esc(line.unit)}${needs?` / bill by ${esc(line.cost_unit)}`:""}</div></td><td>${qty(line.ordered_qty)} ${esc(line.unit)}</td><td>${qty(line.received_before_qty)} ${esc(line.unit)}</td><td><input type="number" step="0.001" class="input delivered-input" data-index="${index}" value="${esc(line.delivered_qty)}" placeholder="${esc(line.unit)}"></td><td><input type="number" step="0.001" class="input accepted-input" data-index="${index}" value="${esc(line.accepted_qty)}"></td><td><input type="number" step="0.001" class="input rejected-input" data-index="${index}" value="${esc(line.rejected_qty)}"></td>${anyCost?`<td>${needs?`<input type="number" step="0.001" class="input costqty-input" data-index="${index}" value="${esc(line.actual_cost_qty??"")}" placeholder="Enter ${esc(line.cost_unit)}">`:'<span class="muted">Auto</span>'}</td>`:""}<td class="line-total">$0.00</td><td><input class="input reason-input" data-index="${index}" value="${esc(line.reject_reason||"")}" placeholder="Reason"></td></tr>`;}).join("")}</tbody></table>`;bindLineInputs();updateTotalsOnly();}
+  function drawLines(){const anyCost=local.some(l=>!sameUnit(l.unit,l.cost_unit));$("receivingLinesBox").innerHTML=`<table><thead><tr><th>Item</th><th>Ordered</th><th>Received Before</th><th>Delivered Now</th><th>Accepted</th><th>Rejected</th>${anyCost?"<th>Billing Qty</th>":""}<th>Total</th><th>Reject Reason</th></tr></thead><tbody>${local.map((line,index)=>{const needs=!sameUnit(line.unit,line.cost_unit);return `<tr data-row="${index}"><td><b>${esc(line.item_name)}</b><div class="muted">Receive in ${esc(line.unit)}${needs?` / bill by ${esc(line.cost_unit)}`:""}<br>Stock add: ${esc(stockQtyTextFromReceived(line))}</div></td><td>${qty(line.ordered_qty)} ${esc(line.unit)}</td><td>${qty(line.received_before_qty)} ${esc(line.unit)}</td><td><input type="number" step="0.001" class="input delivered-input" data-index="${index}" value="${esc(line.delivered_qty)}" placeholder="${esc(line.unit)}"></td><td><input type="number" step="0.001" class="input accepted-input" data-index="${index}" value="${esc(line.accepted_qty)}"></td><td><input type="number" step="0.001" class="input rejected-input" data-index="${index}" value="${esc(line.rejected_qty)}"></td>${anyCost?`<td>${needs?`<input type="number" step="0.001" class="input costqty-input" data-index="${index}" value="${esc(line.actual_cost_qty??"")}" placeholder="Enter ${esc(line.cost_unit)}">`:'<span class="muted">Auto</span>'}</td>`:""}<td class="line-total">$0.00</td><td><input class="input reason-input" data-index="${index}" value="${esc(line.reject_reason||"")}" placeholder="Reason"></td></tr>`;}).join("")}</tbody></table>`;bindLineInputs();updateTotalsOnly();}
   function updateTotalsOnly(){local.forEach((line,index)=>{const row=document.querySelector(`tr[data-row="${index}"] .line-total`); if(row) row.textContent=money(sameUnit(line.unit,line.cost_unit)?Number(line.accepted_qty||0)*Number(line.unit_price||0):Number(line.actual_cost_qty||0)*Number(line.unit_price||0));}); $("receivingTotal").textContent=money(calculateTotal());}
   function bindLineInputs(){document.querySelectorAll(".delivered-input").forEach(input=>input.oninput=()=>{const line=local[Number(input.dataset.index)];line.delivered_qty=Number(input.value||0);line.accepted_qty=Math.max(0,Number(line.delivered_qty||0)-Number(line.rejected_qty||0));const a=document.querySelector(`.accepted-input[data-index="${input.dataset.index}"]`);if(a)a.value=line.accepted_qty;updateTotalsOnly();});document.querySelectorAll(".accepted-input").forEach(input=>input.oninput=()=>{local[Number(input.dataset.index)].accepted_qty=Number(input.value||0);updateTotalsOnly();});document.querySelectorAll(".rejected-input").forEach(input=>input.oninput=()=>{const line=local[Number(input.dataset.index)];line.rejected_qty=Number(input.value||0);line.accepted_qty=Math.max(0,Number(line.delivered_qty||0)-Number(line.rejected_qty||0));const a=document.querySelector(`.accepted-input[data-index="${input.dataset.index}"]`);if(a)a.value=line.accepted_qty;updateTotalsOnly();});document.querySelectorAll(".costqty-input").forEach(input=>input.oninput=()=>{local[Number(input.dataset.index)].actual_cost_qty=Number(input.value||0);updateTotalsOnly();});document.querySelectorAll(".reason-input").forEach(input=>input.oninput=()=>{local[Number(input.dataset.index)].reject_reason=input.value;});}
   drawLines();
   $("receivingForm").onsubmit=async event=>{event.preventDefault();const form=new FormData(event.target);const active=local.filter(l=>Number(l.delivered_qty||0)>0||Number(l.accepted_qty||0)>0||Number(l.rejected_qty||0)>0);if(!active.length)return toast("Enter at least one delivered quantity.","error");try{const total=calculateTotal(),grnNumber=`RN-${Date.now().toString().slice(-8)}`;const note=await insertRow("receiving_notes",{grn_number:grnNumber,receiving_number:grnNumber,branch_id:state.currentBranchId,supplier_id:po.supplier_id,po_id:po.id,purchase_order_id:po.id,received_date:form.get("received_date"),received_at:form.get("received_date"),notes:form.get("notes")||null,total_amount:total,status:"saved",payment_status:"unpaid",paid_amount:0,created_by:state.user.id});const rows=active.map((line,index)=>({grn_id:note.id,receiving_note_id:note.id,po_line_id:line.po_line_id,purchase_order_line_id:line.po_line_id,purchase_order_id:po.id,item_id:line.item_id,ordered_qty:Number(line.ordered_qty||0),delivered_qty:Number(line.delivered_qty||0),received_qty:Number(line.delivered_qty||0),accepted_qty:Number(line.accepted_qty||0),rejected_qty:Number(line.rejected_qty||0),receive_unit:line.unit,order_unit:line.unit,stock_unit:line.stock_unit,cost_unit:line.cost_unit,secondary_qty:sameUnit(line.unit,line.cost_unit)?null:Number(line.actual_cost_qty||0),secondary_unit:sameUnit(line.unit,line.cost_unit)?null:line.cost_unit,cost_qty:sameUnit(line.unit,line.cost_unit)?Number(line.accepted_qty||0):Number(line.actual_cost_qty||0),actual_unit_price:Number(line.unit_price||0),unit_price:Number(line.unit_price||0),rejection_reason:line.reject_reason||null,reject_reason:line.reject_reason||null,notes:null,sort_order:index}));const lineInsert=await state.db.from("receiving_note_lines").insert(rows);if(lineInsert.error)throw lineInsert.error;for(const line of active){if(Number(line.accepted_qty||0)>0)await addStockMovement(note,po,line);}await updatePoStatus(po.id);toast("Receiving saved.","ok");closeModal();renderReceiving();}catch(error){toast("Receiving failed: "+error.message,"error");}};
 }
-async function addStockMovement(note,po,line){const amount=Number(line.accepted_qty||0);const payload={branch_id:state.currentBranchId,item_id:line.item_id,movement_type:"RECEIVING",qty_change:amount,qty:amount,quantity:amount,stock_unit:line.stock_unit,unit:line.stock_unit,reference_id:note.id,reference_type:"receiving",notes:`Receiving ${rnNo(note)} from ${poNo(po)}`,created_by:state.user.id};const result=await state.db.from("stock_movements").insert(payload);if(result.error)throw result.error;}
+async function addStockMovement(note,po,line){const it=item(line.item_id);const amount=stockQtyFromReceived(line);const stockUnit=it?.stock_unit||line.stock_unit||line.unit;const payload={branch_id:state.currentBranchId,item_id:line.item_id,movement_type:"RECEIVING",qty_change:amount,qty:amount,quantity:amount,stock_unit:stockUnit,unit:stockUnit,reference_id:note.id,reference_type:"receiving",notes:`Receiving ${rnNo(note)} from ${poNo(po)} (${qty(line.accepted_qty||0)} ${line.unit} => ${qty(amount)} ${stockUnit})`,created_by:state.user.id};const result=await state.db.from("stock_movements").insert(payload);if(result.error)throw result.error;}
 async function updatePoStatus(poId){const poLines=await safeSelect("purchase_order_lines","*",{eq:{purchase_order_id:poId}}).catch(()=>[]);const notesForPo=await safeSelect("receiving_notes","*",{eq:{po_id:poId}}).catch(()=>[]);const ids=new Set(notesForPo.map(n=>n.id));const allLines=await safeSelect("receiving_note_lines","*").catch(()=>[]);const related=allLines.filter(l=>ids.has(l.grn_id||l.receiving_note_id));let any=false,all=true;for(const pl of poLines){const ordered=Number(pl.ordered_qty||0);const received=related.filter(l=>(l.po_line_id||l.purchase_order_line_id)===pl.id).reduce((s,l)=>s+Number(l.accepted_qty||0),0);if(received>0)any=true;if(received<ordered)all=false;}const status=all?"fully_received":any?"partially_received":"approved";const result=await state.db.from("purchase_orders").update({status,updated_at:new Date().toISOString()}).eq("id",poId);if(result.error)throw result.error;}
 function rnLines(note){return receivingLines.filter(l=>(l.grn_id||l.receiving_note_id)===note.id);}
 function rnText(note){const po=notePo(note);const lines=rnLines(note);return [`Receiving Note: ${rnNo(note)}`,`Company: ${companyName()}`,`Branch: ${branchName()}`,branchAddress()?`Address: ${branchAddress()}`:"",`Branch Phone: ${branchPhone() || "-"}`,`PO: ${poNo(po)}`,`Supplier: ${supplierName(supplier(note.supplier_id))}`,`Date: ${(note.received_date||note.received_at||note.created_at||"").slice(0,10)}`,"",...lines.map((l,i)=>`${i+1}. ${itemLabel(item(l.item_id))} - Delivered ${qty(l.delivered_qty||l.received_qty)} ${l.receive_unit||l.order_unit||l.stock_unit||""}, Accepted ${qty(l.accepted_qty)}, Rejected ${qty(l.rejected_qty||0)}${l.rejection_reason||l.reject_reason?" - "+(l.rejection_reason||l.reject_reason):""}`),"",`Total: ${money(note.total_amount)}`,`Paid: ${money(note.paid_amount||0)}`,`Outstanding: ${money(unpaidAmount(note))}`].filter(Boolean).join("\n");}

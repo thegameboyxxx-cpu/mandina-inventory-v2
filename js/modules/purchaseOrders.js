@@ -34,7 +34,7 @@ function branchPhone(){
   return b.phone || b.telephone || b.mobile || b.contact_phone || "";
 }
 function companyName(){
-  return "Mandina Kitchen";
+  return "Mandina Kitchen | مدينة كيتشن";
 }
 function poPhone(){
   return "0404 722 009";
@@ -47,6 +47,7 @@ function docHeader(title, number){
     <div class="doc-header">
       <div>
         <div class="logo-mark">Mandina Kitchen</div>
+        <div class="arabic-logo">مدينة كيتشن</div>
         <div class="muted">${esc(companyName())}</div>
       </div>
       <div style="text-align:right">
@@ -256,4 +257,4 @@ function copyPoText(po, lines){ navigator.clipboard.writeText(poText(po,lines));
 function emailPo(po, lines){ mailTo(supplierEmail(getSupplier(po.supplier_id)), `Purchase Order ${poNumber(po)} - ${branchName()}`, poText(po, lines)); }
 function printPo(po, lines){ const rows=lines.filter(l=>l.item_id).map((l,i)=>`<tr><td>${i+1}</td><td>${esc(itemLabel(getItem(l.item_id)))}</td><td>${qty(l.ordered_qty)} ${esc(l.unit||l.order_unit||"")}</td><td>${esc(l.cost_unit||"")}</td><td>${money(l.unit_price)}</td><td>${lineTotalText(l)}</td></tr>`).join(""); openPrintWindow(`PO ${poNumber(po)}`, `${docHeader("Purchase Order", poNumber(po))}<div class="box"><b>Supplier:</b> ${esc(supplierName(getSupplier(po.supplier_id)))}<br><b>Date:</b> ${esc(po.order_date || "")}</div><table><thead><tr><th>#</th><th>Item</th><th>Qty</th><th>Cost Unit</th><th>Price</th><th>Total</th></tr></thead><tbody>${rows}</tbody></table><div class="total">PO Total: ${money(po.total_amount)}</div>`); }
 
-function openSuggestedReorderModal(){ const rows=state.items.filter(i=>Number(i.reorder_qty||0)>0); openModal(`<div class="modal-head"><h3>Suggested Reorder Draft</h3><button class="btn secondary small" onclick="closeModal()">✕</button></div><div class="modal-body"><table><thead><tr><th>Item</th><th>Supplier</th><th>Reorder Qty</th><th>Stock Unit</th></tr></thead><tbody>${rows.map(i=>`<tr><td>${esc(itemLabel(i))}</td><td>${esc(supplierName(getSupplier(i.primary_supplier_id)))}</td><td>${qty(i.reorder_qty)}</td><td>${esc(i.stock_unit)}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">No reorder quantities set.</td></tr>`}</tbody></table></div><div class="modal-foot"><button class="btn secondary" onclick="closeModal()">Close</button></div>`); }
+function openSuggestedReorderModal(){ const rows=state.items.filter(i=>Number(i.reorder_qty||0)>0); openModal(`<div class="modal-head"><h3>Suggested Reorder Draft</h3><button class="btn secondary small" onclick="closeModal()">✕</button></div><div class="modal-body"><table><thead><tr><th>Item</th><th>Supplier</th><th>Reorder Qty</th><th>Order Unit</th></tr></thead><tbody>${rows.map(i=>`<tr><td>${esc(itemLabel(i))}</td><td>${esc(supplierName(getSupplier(i.primary_supplier_id)))}</td><td>${qty(i.reorder_qty)}</td><td>${esc(i.receiving_unit || i.purchase_package_type || i.stock_unit)}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">No reorder quantities set.</td></tr>`}</tbody></table></div><div class="modal-foot"><button class="btn secondary" onclick="closeModal()">Close</button></div>`); }
