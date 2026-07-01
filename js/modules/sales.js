@@ -14,6 +14,16 @@ const menuName = m => m ? `${m.name}${m.name_ar ? " / " + m.name_ar : ""}` : "Me
 const item = id => (state.items || []).find(i => i.id === id);
 const itemLabel = i => i ? `${i.name}${i.name_ar ? " / " + i.name_ar : ""}` : "Item";
 const reportNo = r => r?.loyverse_receipt_number || `SR-${String(r?.id || "").slice(0, 8)}`;
+const errText = err => {
+  const value = err?.message ?? err;
+  if (!value) return "Unknown error";
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+};
 
 async function loadSalesData() {
   await loadItems();
@@ -55,7 +65,7 @@ export async function renderSales() {
     $("newSalesBtn").onclick = openSalesModal;
     renderSalesTable();
   } catch (e) {
-    content.innerHTML = showError("Could not load Sales. " + e.message);
+    content.innerHTML = showError("Could not load Sales. " + errText(e));
   }
 }
 
@@ -164,7 +174,7 @@ function openLoyverseSalesImportModal() {
       renderSales();
     } catch (err) {
       $("loyverseSalesImportStatus").textContent = "";
-      toast("Loyverse sales import failed: " + err.message, "error");
+      toast("Loyverse sales import failed: " + errText(err), "error");
     }
   };
 }
@@ -295,7 +305,7 @@ function openSalesModal() {
       closeModal();
       renderSales();
     } catch (err) {
-      toast("Sales save failed: " + err.message, "error");
+      toast("Sales save failed: " + errText(err), "error");
     }
   };
 }
@@ -332,6 +342,6 @@ async function processSales(report) {
     toast("Sales processed and stock deducted.", "ok");
     renderSales();
   } catch (err) {
-    toast("Sales processing failed: " + err.message, "error");
+    toast("Sales processing failed: " + errText(err), "error");
   }
 }
