@@ -8,7 +8,7 @@ let reports = [];
 let lines = [];
 let menuItems = [];
 let components = [];
-let filters = { from: "", to: "", source: "" };
+let filters = { from: "", to: "", source: "", item: "", payment: "" };
 
 const menuName = m => m ? `${m.name}${m.name_ar ? " / " + m.name_ar : ""}` : "Menu Item";
 const item = id => (state.items || []).find(i => i.id === id);
@@ -27,10 +27,28 @@ const errText = err => {
 
 async function loadSalesData() {
   await loadItems();
-  reports = await safeSelect("sales_reports", "*", { eq: { branch_id: state.currentBranchId }, order: "created_at", ascending: false }).catch(() => []);
-  lines = await safeSelect("sales_report_lines", "*").catch(() => []);
+  reports = await selectAll("sales_reports", "*", { eq: { branch_id: state.currentBranchId }, order: "created_at", ascending: false }).catch(() => []);
+  const reportIds = new Set(reports.map(r => r.id));
+  lines = (await selectAll("sales_report_lines", "*").catch(() => [])).filter(line => reportIds.has(line.report_id));
   menuItems = await safeSelect("menu_items", "*", { order: "name" }).catch(() => []);
   components = await safeSelect("menu_item_components", "*", { order: "sort_order" }).catch(() => []);
+}
+
+async function selectAll(table, columns = "*", options = {}) {
+  const pageSize = 1000;
+  let from = 0;
+  const rows = [];
+  while (true) {
+    let q = state.db.from(table).select(columns).range(from, from + pageSize - 1);
+    if (options.eq) for (const [key, value] of Object.entries(options.eq)) q = q.eq(key, value);
+    if (options.order) q = q.order(options.order, { ascending: options.ascending ?? true });
+    const { data, error } = await q;
+    if (error) throw error;
+    rows.push(...(data || []));
+    if (!data || data.length < pageSize) break;
+    from += pageSize;
+  }
+  return rows;
 }
 
 export async function renderSales() {
@@ -46,6 +64,8 @@ export async function renderSales() {
           <div class="toolbar">
             <input id="salesFrom" class="input" type="date">
             <input id="salesTo" class="input" type="date">
+            <input id="salesItemFilter" class="input" placeholder="Search item...">
+            <select id="salesPaymentFilter"><option value="">All payment</option></select>
             <select id="salesSourceFilter"><option value="">All source</option><option value="manual">Manual</option><option value="loyverse">Loyverse</option></select>
             <button class="btn secondary" id="importLoyverseSalesBtn">Import Loyverse Sales</button>
             <button class="btn" id="newSalesBtn">+ Manual Sales Entry</button>
@@ -57,9 +77,14 @@ export async function renderSales() {
     `;
     $("salesFrom").value = filters.from;
     $("salesTo").value = filters.to;
+    $("salesItemFilter").value = filters.item;
+    $("salesPaymentFilter").innerHTML = paymentOptions();
+    $("salesPaymentFilter").value = filters.payment;
     $("salesSourceFilter").value = filters.source;
     $("salesFrom").onchange = e => { filters.from = e.target.value; renderSalesTable(); };
     $("salesTo").onchange = e => { filters.to = e.target.value; renderSalesTable(); };
+    $("salesItemFilter").oninput = e => { filters.item = e.target.value; renderSalesTable(); };
+    $("salesPaymentFilter").onchange = e => { filters.payment = e.target.value; renderSalesTable(); };
     $("salesSourceFilter").onchange = e => { filters.source = e.target.value; renderSalesTable(); };
     $("importLoyverseSalesBtn").onclick = openLoyverseSalesImportModal;
     $("newSalesBtn").onclick = openSalesModal;
@@ -73,12 +98,30 @@ function linesFor(reportId) {
   return lines.filter(l => l.report_id === reportId);
 }
 
+function paymentOptions() {
+  const names = [...new Set(reports.flatMap(r => paymentNames(r.payment_summary)))].filter(Boolean).sort();
+  return '<option value="">All payment</option>' + names.map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join("");
+}
+
+function paymentNames(summary) {
+  return String(summary || "")
+    .split(",")
+    .map(part => part.split(":")[0]?.trim())
+    .filter(Boolean);
+}
+
 function renderSalesTable() {
+  const itemQuery = filters.item.trim().toLowerCase();
   const filteredReports = reports.filter(r => {
     const d = (r.report_date || "").slice(0, 10);
     if (filters.from && d < filters.from) return false;
     if (filters.to && d > filters.to) return false;
     if (filters.source && (r.source || "manual") !== filters.source) return false;
+    if (filters.payment && !paymentNames(r.payment_summary).includes(filters.payment)) return false;
+    if (itemQuery) {
+      const haystack = linesFor(r.id).map(line => `${line.pos_item_name || ""} ${menuName(menuItems.find(m => m.id === line.menu_item_id))}`).join(" ").toLowerCase();
+      if (!haystack.includes(itemQuery)) return false;
+    }
     return true;
   });
   const allLines = filteredReports.flatMap(r => linesFor(r.id));
@@ -191,7 +234,13 @@ function openSalesDetails(report) {
         <div class="card"><div class="stat-title">Items Sold</div><div><b>${qty(report.total_items_sold || 0)}</b></div></div>
         <div class="card"><div class="stat-title">Sales</div><div><b>${money(report.total_sales_amount || 0)}</b></div></div>
       </div>
-      <div class="muted" style="margin-bottom:12px">${esc(report.payment_summary || report.notes || "")}</div>
+      <div class="form-grid" style="margin-bottom:14px">
+        <div><label>Receipt</label><input class="input" value="${esc(reportNo(report))}" disabled></div>
+        <div><label>Payment</label><input class="input" value="${esc(report.payment_summary || "")}" disabled></div>
+        <div><label>Status</label><input class="input" value="${esc(report.status || "draft")}" disabled></div>
+        <div><label>Dining Option</label><input class="input" value="${esc(report.dining_option || "")}" disabled></div>
+        <div class="full"><label>Notes</label><textarea class="input" rows="2" disabled>${esc(report.notes || "")}</textarea></div>
+      </div>
       <table>
         <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th><th>Mapping</th><th>Note</th></tr></thead>
         <tbody>
