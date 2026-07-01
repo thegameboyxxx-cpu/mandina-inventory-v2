@@ -261,7 +261,14 @@ function openNewCountModal() {
 function openCountEditor(count) {
   const readOnly = !canEdit(count);
   const managerReview = canReview(count);
-  let localLines = linesFor(count.id).map(l => ({ ...l }));
+  const countedPresent = line => line.counted_qty !== null && line.counted_qty !== undefined && line.counted_qty !== "";
+  const computedVariance = line => countedPresent(line) ? Number(line.counted_qty || 0) - Number(line.expected_qty || 0) : null;
+  let localLines = linesFor(count.id).map(l => {
+    const line = { ...l };
+    line.variance = computedVariance(line);
+    if ((count.status || "draft") !== "approved") line.approved_adjustment_qty = line.variance;
+    return line;
+  });
   let search = "";
   let lineFilter = "";
 
@@ -299,9 +306,7 @@ function openCountEditor(count) {
       return;
     }
     line.variance = Number(line.counted_qty || 0) - Number(line.expected_qty || 0);
-    if (line.approved_adjustment_qty === null || line.approved_adjustment_qty === undefined || line.approved_adjustment_qty === "") {
-      line.approved_adjustment_qty = line.variance;
-    }
+    line.approved_adjustment_qty = line.variance;
   }
 
   function visibleLines() {
@@ -402,7 +407,7 @@ function openCountEditor(count) {
         variance_reason: line.variance_reason || null,
         notes: line.notes || null,
         requires_manager_review: Number(line.variance || 0) !== 0,
-        approved_adjustment_qty: line.approved_adjustment_qty === "" ? null : line.approved_adjustment_qty,
+        approved_adjustment_qty: managerReview ? (line.approved_adjustment_qty === "" ? null : line.approved_adjustment_qty) : computedVariance(line),
         updated_at: new Date().toISOString(),
       };
       const { error } = await state.db.from("stock_count_lines").update(payload).eq("id", line.id);
