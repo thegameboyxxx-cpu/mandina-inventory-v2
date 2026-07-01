@@ -128,7 +128,7 @@ function renderCountsTable() {
       <div class="card"><div class="stat-title">Rejected</div><div><b>${summary.rejected || 0}</b></div></div>
     </div>
     <table>
-      <thead><tr><th>Count</th><th>Date</th><th>Type</th><th>Lines</th><th>Variance</th><th>Status</th>${isManager() ? "<th>User</th>" : ""}<th></th></tr></thead>
+      <thead><tr><th>Count</th><th>Date</th><th>Type</th><th>Lines</th><th>Variance</th><th>Status</th>${isManager() ? "<th>Submitted By</th>" : ""}<th></th></tr></thead>
       <tbody>
         ${rows.map(c => {
           const lines = linesFor(c.id);
