@@ -7,7 +7,7 @@ const corsHeaders = {
 };
 
 const LOYVERSE_URL = "https://api.loyverse.com/v1.0";
-const FUNCTION_VERSION = "2026-07-02.4";
+const FUNCTION_VERSION = "2026-07-02.5";
 
 function json(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify({ function_version: FUNCTION_VERSION, ...body }), {
@@ -95,6 +95,12 @@ function paymentSummary(receipt: Record<string, unknown>) {
   return ((receipt.payments as Record<string, unknown>[] | undefined) || [])
     .map(payment => `${payment.name || payment.type}: ${Number(payment.money_amount || 0).toFixed(2)}`)
     .join(", ");
+}
+
+function chunks<T>(rows: T[], size: number) {
+  const result: T[][] = [];
+  for (let i = 0; i < rows.length; i += size) result.push(rows.slice(i, i + size));
+  return result;
 }
 
 serve(async req => {
@@ -191,17 +197,21 @@ serve(async req => {
       if (existingError) throw existingError;
       const existingByReceipt = new Map((existingReports || []).map(report => [report.loyverse_receipt_number, report]));
 
-      let imported = 0;
       let skippedConfirmed = 0;
+      const receiptsToImport = [];
       for (const receipt of receipts) {
         const existing = existingByReceipt.get(receipt.receipt_number);
         if (existing?.status === "confirmed") {
           skippedConfirmed += 1;
           continue;
         }
+        receiptsToImport.push(receipt);
+      }
 
+      const now = new Date().toISOString();
+      const reportPayloads = receiptsToImport.map(receipt => {
         const lineItems = (receipt.line_items as Record<string, unknown>[] | undefined) || [];
-        const reportPayload = {
+        return {
           branch_id: branchId,
           report_date: String(receipt.receipt_date || receipt.created_at || "").slice(0, 10),
           status: "draft",
@@ -215,20 +225,46 @@ serve(async req => {
           loyverse_store_id: receipt.store_id || null,
           loyverse_receipt_date: receipt.receipt_date || null,
           loyverse_source: receipt.source || null,
-          loyverse_synced_at: new Date().toISOString(),
+          loyverse_synced_at: now,
           loyverse_raw: receipt,
           created_by: userData.user.id,
-          updated_at: new Date().toISOString(),
+          updated_at: now,
         };
+      });
 
-        const savedReport = existing
-          ? await supabase.from("sales_reports").update(reportPayload).eq("id", existing.id).select("*").single()
-          : await supabase.from("sales_reports").insert(reportPayload).select("*").single();
-        if (savedReport.error) throw savedReport.error;
+      if (reportPayloads.length) {
+        for (const batch of chunks(reportPayloads, 100)) {
+          const { error } = await supabase
+            .from("sales_reports")
+            .upsert(batch, { onConflict: "loyverse_receipt_number" });
+          if (error) throw error;
+        }
+      }
 
-        await supabase.from("sales_report_lines").delete().eq("report_id", savedReport.data.id);
+      const receiptNumbers = receiptsToImport.map(receipt => receipt.receipt_number).filter(Boolean);
+      const importedReportIds = new Map<string, string>();
+      for (const batch of chunks(receiptNumbers, 250)) {
+        const { data: savedReports, error } = await supabase
+          .from("sales_reports")
+          .select("id, loyverse_receipt_number")
+          .in("loyverse_receipt_number", batch);
+        if (error) throw error;
+        for (const report of savedReports || []) importedReportIds.set(report.loyverse_receipt_number, report.id);
+      }
+
+      const ids = [...importedReportIds.values()];
+      for (const batch of chunks(ids, 250)) {
+        const { error } = await supabase.from("sales_report_lines").delete().in("report_id", batch);
+        if (error) throw error;
+      }
+
+      const allReportLines = [];
+      for (const receipt of receiptsToImport) {
+        const reportId = importedReportIds.get(String(receipt.receipt_number));
+        if (!reportId) continue;
+        const lineItems = (receipt.line_items as Record<string, unknown>[] | undefined) || [];
         const reportLines = lineItems.map(line => ({
-          report_id: savedReport.data.id,
+          report_id: reportId,
           menu_item_id: menuByVariant.get(line.variant_id) || null,
           qty_sold: Number(line.quantity || 0),
           previous_qty: 0,
@@ -244,14 +280,20 @@ serve(async req => {
           loyverse_variant_id: line.variant_id || null,
           loyverse_sku: line.sku || null,
         }));
-        if (reportLines.length) {
-          const { error } = await supabase.from("sales_report_lines").insert(reportLines);
-          if (error) throw error;
-        }
-        imported += 1;
+        allReportLines.push(...reportLines);
       }
 
-      return json({ receipts_read: receipts.length, imported, skipped_confirmed: skippedConfirmed });
+      for (const batch of chunks(allReportLines, 500)) {
+        const { error } = await supabase.from("sales_report_lines").insert(batch);
+        if (error) throw error;
+      }
+
+      return json({
+        receipts_read: receipts.length,
+        imported: receiptsToImport.length,
+        lines_imported: allReportLines.length,
+        skipped_confirmed: skippedConfirmed,
+      });
     }
 
     return json({ error: "Unknown action." }, 400);
