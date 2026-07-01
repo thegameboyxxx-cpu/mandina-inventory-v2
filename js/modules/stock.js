@@ -8,6 +8,10 @@ let movements = [];
 let stockFilters = { search: "", status: "" };
 
 const itemLabel = item => item ? `${item.name}${item.name_ar ? " / " + item.name_ar : ""}` : "Item";
+const itemType = item => item?.item_type || "raw";
+const itemTypeBadge = item => itemType(item) === "produced"
+  ? '<span class="badge green">Produced</span>'
+  : '<span class="badge gold">Raw</span>';
 const currentQty = itemId => {
   const bal = balances.find(b => b.item_id === itemId);
   return Number(bal?.qty_on_hand ?? bal?.current_qty ?? bal?.quantity ?? 0);
@@ -102,19 +106,20 @@ function renderStockTables() {
 
   $("stockTable").innerHTML = `
     <table>
-      <thead><tr><th>Item</th><th>Category</th><th>Current Stock</th><th>Stock Unit</th><th>Reorder Level</th><th>Status</th></tr></thead>
+      <thead><tr><th>Item</th><th>Type</th><th>Category</th><th>Current Stock</th><th>Stock Unit</th><th>Reorder Level</th><th>Status</th></tr></thead>
       <tbody>
         ${rows.map(item => {
           const status = stockStatus(item);
           return `<tr>
             <td><b>${esc(itemLabel(item))}</b></td>
+            <td>${itemTypeBadge(item)}</td>
             <td>${esc(categoryName(item.category_id))}</td>
             <td><b>${qty(currentQty(item.id))}</b></td>
             <td>${esc(item.stock_unit || "")}</td>
             <td>${qty(item.reorder_level || 0)} ${esc(item.stock_unit || "")}</td>
             <td><span class="badge ${status.cls}">${esc(status.label)}</span></td>
           </tr>`;
-        }).join("") || `<tr><td colspan="6" class="muted">No stock items found.</td></tr>`}
+        }).join("") || `<tr><td colspan="7" class="muted">No stock items found.</td></tr>`}
       </tbody>
     </table>
   `;

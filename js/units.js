@@ -19,6 +19,9 @@ export const UNITS = [
   { value: "pack", label: "pack" },
   { value: "roll", label: "roll" },
   { value: "can", label: "can" },
+  { value: "tin", label: "tin" },
+  { value: "drum", label: "drum" },
+  { value: "tub", label: "tub" },
   { value: "bunch", label: "bunch" },
 ];
 

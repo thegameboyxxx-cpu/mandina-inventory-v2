@@ -22,6 +22,10 @@ const supplierLabel = id => supplierName(state.suppliers.find(s => s.id === id))
 const options = (rows, selected, labelFn) => '<option value="">-- Select --</option>' + rows.map(row => (
   `<option value="${esc(row.id)}" ${row.id === selected ? "selected" : ""}>${esc(labelFn(row))}</option>`
 )).join("");
+const itemType = item => item?.item_type || "raw";
+const itemTypeBadge = item => itemType(item) === "produced"
+  ? '<span class="badge green">Produced</span>'
+  : '<span class="badge gold">Raw</span>';
 
 function packageText(item) {
   const type = item.purchase_package_type || "";
@@ -73,10 +77,11 @@ function renderItemsTable() {
 
   $("itemsTable").innerHTML = `
     <table>
-      <thead><tr><th>Item</th><th>Category</th><th>Supplier</th><th>Receiving</th><th>Stock Unit</th><th>Cost Unit</th><th>Recipe</th><th></th></tr></thead>
+      <thead><tr><th>Item</th><th>Type</th><th>Category</th><th>Supplier</th><th>Receiving</th><th>Stock Unit</th><th>Cost Unit</th><th>Recipe</th><th></th></tr></thead>
       <tbody>
         ${rows.map(item => `<tr>
           <td><b>${esc(item.name)}</b><div class="muted">${esc(item.name_ar || "")}</div></td>
+          <td>${itemTypeBadge(item)}</td>
           <td>${esc(categoryName(item.category_id))}</td>
           <td>${esc(supplierLabel(item.primary_supplier_id))}</td>
           <td>${esc(receivingText(item))}</td>
@@ -84,7 +89,7 @@ function renderItemsTable() {
           <td>${esc(item.cost_unit || item.secondary_unit || item.stock_unit)}</td>
           <td>${item.is_recipe_controlled ? '<span class="badge green">Yes</span>' : '<span class="badge gold">Count only</span>'}</td>
           <td><button class="btn secondary small edit-item" data-id="${esc(item.id)}">Edit</button></td>
-        </tr>`).join("") || '<tr><td colspan="8" class="muted">No items yet.</td></tr>'}
+        </tr>`).join("") || '<tr><td colspan="9" class="muted">No items yet.</td></tr>'}
       </tbody>
     </table>
   `;
@@ -106,6 +111,7 @@ function openItemModal(item = null) {
         <div class="form-grid">
           <div><label>Item Name</label><input name="name" class="input" required value="${esc(item?.name || "")}"></div>
           <div><label>Arabic Name</label><input name="name_ar" class="input" value="${esc(item?.name_ar || "")}"></div>
+          <div><label>Item Type</label><select name="item_type"><option value="raw">Raw / Supplied Item</option><option value="produced">Produced Item</option></select><div class="muted">Produced items can be selected as production outputs.</div></div>
           <div><label>Category</label><select name="category_id">${options(state.categories, item?.category_id, c => c.name)}</select></div>
           <div><label>Primary Supplier</label><select name="primary_supplier_id">${options(state.suppliers, item?.primary_supplier_id, supplierName)}</select></div>
           <div><label>Receiving Unit</label>${unitSelect("receiving_unit", item?.receiving_unit || item?.purchase_package_type || "", "required")}<div class="muted">What staff count when goods arrive.</div></div>
@@ -130,6 +136,7 @@ function openItemModal(item = null) {
 
   if (item?.is_recipe_controlled) document.querySelector("[name='is_recipe_controlled']").value = "true";
   if (item?.active === false) document.querySelector("[name='active']").value = "false";
+  document.querySelector("[name='item_type']").value = itemType(item);
 
   $("itemForm").onsubmit = async e => {
     e.preventDefault();
@@ -142,6 +149,7 @@ function openItemModal(item = null) {
       name_ar: form.get("name_ar") || null,
       category_id: form.get("category_id") || null,
       primary_supplier_id: form.get("primary_supplier_id") || null,
+      item_type: form.get("item_type") || "raw",
       receiving_unit: form.get("receiving_unit"),
       cost_unit: costUnit,
       purchase_package_type: form.get("purchase_package_type") || null,
