@@ -11,10 +11,7 @@ const options = (rows, selected, labelFn) => '<option value="">-- Select --</opt
 const itemLabel = item => item ? `${item.name}${item.name_ar ? " / " + item.name_ar : ""}` : "";
 const categoryName = id => state.categories.find(c => c.id === id)?.name || "";
 const supplierLabel = id => supplierName(state.suppliers.find(s => s.id === id));
-const itemType = item => item?.item_type || "raw";
-const itemTypeBadge = item => itemType(item) === "produced"
-  ? '<span class="badge green">Produced</span>'
-  : '<span class="badge gold">Raw</span>';
+const isRawItem = item => (item?.item_type || "raw") === "raw";
 
 function receivingUnit(item) {
   return item?.receiving_unit || item?.purchase_package_type || "";
@@ -44,7 +41,7 @@ export async function renderItemsSimple() {
   if (!isManager()) return $("content").innerHTML = showError("Staff users cannot access Items.");
 
   const content = $("content");
-  content.innerHTML = '<div class="card">Loading simplified items...</div>';
+  content.innerHTML = '<div class="card">Loading items...</div>';
 
   try {
     await loadItemDeps();
@@ -52,14 +49,14 @@ export async function renderItemsSimple() {
     content.innerHTML = `
       <div class="card">
         <div class="section-head">
-          <h2>Items Simple</h2>
+          <h2>Items</h2>
           <div class="toolbar">
             <input id="simpleItemSearch" class="input" placeholder="Search item...">
-            <button class="btn" id="addSimpleItemBtn">+ Add Item</button>
+            <button class="btn" id="addSimpleItemBtn">+ Add Raw Item</button>
           </div>
         </div>
         <div class="muted" style="margin-bottom:12px">
-          Test screen only. It saves to the same item table, but groups the unit fields into a simpler receiving and stock setup.
+          Raw items are supplied items that can be purchased, received, stocked, and used as production inputs.
         </div>
         <div id="simpleItemsTable"></div>
       </div>
@@ -74,15 +71,16 @@ export async function renderItemsSimple() {
 
 function renderSimpleTable() {
   const q = ($("simpleItemSearch")?.value || "").toLowerCase();
-  const rows = state.items.filter(item => JSON.stringify(item).toLowerCase().includes(q));
+  const rows = state.items
+    .filter(isRawItem)
+    .filter(item => JSON.stringify(item).toLowerCase().includes(q));
 
   $("simpleItemsTable").innerHTML = `
     <table>
-      <thead><tr><th>Item</th><th>Type</th><th>Category</th><th>Supplier</th><th>Receiving Setup</th><th>Billing</th><th>Reorder</th><th>Status</th><th></th></tr></thead>
+      <thead><tr><th>Item</th><th>Category</th><th>Supplier</th><th>Receiving Setup</th><th>Billing</th><th>Reorder</th><th>Status</th><th></th></tr></thead>
       <tbody>
         ${rows.map(item => `<tr>
           <td><b>${esc(itemLabel(item))}</b></td>
-          <td>${itemTypeBadge(item)}</td>
           <td>${esc(categoryName(item.category_id))}</td>
           <td>${esc(supplierLabel(item.primary_supplier_id))}</td>
           <td>${esc(conversionText(item))}</td>
@@ -90,7 +88,7 @@ function renderSimpleTable() {
           <td>${item.reorder_level ?? 0} ${esc(stockUnit(item))} / order ${item.reorder_qty ?? 0} ${esc(receivingUnit(item))}</td>
           <td>${item.active === false ? '<span class="badge red">Inactive</span>' : '<span class="badge green">Active</span>'}</td>
           <td><button class="btn secondary small edit-simple-item" data-id="${esc(item.id)}">Edit</button></td>
-        </tr>`).join("") || '<tr><td colspan="9" class="muted">No items yet.</td></tr>'}
+        </tr>`).join("") || '<tr><td colspan="8" class="muted">No raw items yet.</td></tr>'}
       </tbody>
     </table>
   `;
@@ -108,7 +106,7 @@ function openSimpleItemModal(item = null) {
 
   openModal(`
     <div class="modal-head">
-      <h3>${edit ? "Edit Item - Simple" : "Add Item - Simple"}</h3>
+      <h3>${edit ? "Edit Raw Item" : "Add Raw Item"}</h3>
       <button class="btn secondary small" onclick="closeModal()">x</button>
     </div>
     <form id="simpleItemForm">
@@ -117,7 +115,6 @@ function openSimpleItemModal(item = null) {
         <div class="form-grid">
           <div><label>Item Name</label><input name="name" class="input" required value="${esc(item?.name || "")}"></div>
           <div><label>Arabic Name</label><input name="name_ar" class="input" value="${esc(item?.name_ar || "")}"></div>
-          <div><label>Item Type</label><select name="item_type"><option value="raw">Raw / Supplied Item</option><option value="produced">Produced Item</option></select><div class="muted">Use Produced for items made by production recipes.</div></div>
           <div><label>Category</label><select name="category_id">${options(state.categories, item?.category_id, c => c.name)}</select></div>
           <div><label>Primary Supplier</label><select name="primary_supplier_id">${options(state.suppliers, item?.primary_supplier_id, supplierName)}</select></div>
           <div><label>Status</label><select name="active"><option value="true">Active</option><option value="false">Inactive</option></select></div>
@@ -153,7 +150,6 @@ function openSimpleItemModal(item = null) {
 
   if (item?.active === false) document.querySelector("[name='active']").value = "false";
   if (item?.is_recipe_controlled) document.querySelector("[name='is_recipe_controlled']").value = "true";
-  document.querySelector("[name='item_type']").value = itemType(item);
 
   const updatePreview = () => {
     const recvUnit = document.querySelector("[name='receiving_unit']").value || "?";
@@ -181,7 +177,7 @@ function openSimpleItemModal(item = null) {
       name_ar: form.get("name_ar") || null,
       category_id: form.get("category_id") || null,
       primary_supplier_id: form.get("primary_supplier_id") || null,
-      item_type: form.get("item_type") || "raw",
+      item_type: "raw",
       receiving_unit: receiving,
       purchase_package_type: receiving,
       purchase_package_qty: Number(form.get("units_per_receiving") || 1),
@@ -204,7 +200,7 @@ function openSimpleItemModal(item = null) {
       : await state.db.from("items").insert(payload);
 
     if (result.error) return toast(result.error.message, "error");
-    toast("Item saved from simple screen.", "ok");
+    toast("Raw item saved.", "ok");
     closeModal();
     renderItemsSimple();
   };

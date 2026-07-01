@@ -2,8 +2,8 @@ import { state, isManager } from "./state.js";
 import { $, esc, toast } from "./utils.js";
 import { renderDashboard } from "./modules/dashboard.js";
 import { renderSuppliers } from "./modules/suppliers.js";
-import { renderItems } from "./modules/items.js";
 import { renderItemsSimple } from "./modules/itemsSimple.js";
+import { renderProducedItems } from "./modules/producedItems.js";
 import { renderPurchaseOrders } from "./modules/purchaseOrders.js";
 import { renderReceiving } from "./modules/receiving.js";
 import { renderProduction } from "./modules/production.js";
@@ -36,12 +36,12 @@ export function setPage(page){
 }
 
 export async function refreshCurrent(){
-  const titles = { dashboard:"Dashboard", suppliers:"Suppliers", items:"Items", itemsSimple:"Items Simple", purchase:"Purchase Orders", receiving:"Receiving", stock:"Stock", production:"Production" };
+  const titles = { dashboard:"Dashboard", suppliers:"Suppliers", items:"Items", producedItems:"Produced Items", purchase:"Purchase Orders", receiving:"Receiving", stock:"Stock", production:"Production" };
   $("pageTitle").textContent = titles[state.page] || "Mandina";
   if(state.page === "dashboard") return renderDashboard();
   if(state.page === "suppliers") return renderSuppliers();
-  if(state.page === "items") return renderItems();
-  if(state.page === "itemsSimple") return renderItemsSimple();
+  if(state.page === "items") return renderItemsSimple();
+  if(state.page === "producedItems") return renderProducedItems();
   if(state.page === "purchase") return renderPurchaseOrders();
   if(state.page === "receiving") return renderReceiving();
   if(state.page === "stock") return renderStock();

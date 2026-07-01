@@ -276,7 +276,7 @@ function openRecipeModal(recipe = null) {
         <div class="form-grid">
           <div><label>Recipe Name</label><input name="name" class="input" required value="${esc(recipe?.name || "")}" placeholder="Mandi Rice"></div>
           <div><label>Arabic Name</label><input name="name_ar" class="input" value="${esc(recipe?.name_ar || "")}"></div>
-          <div><label>Output Produced Item</label><select name="output_item_id" required>${producedOutputItems(recipe?.output_item_id)}</select><div class="muted">${producedRows.length ? "Only items marked as Produced appear here." : "Create a Produced item first from Items Simple or Items."}</div></div>
+          <div><label>Output Produced Item</label><select name="output_item_id" required>${producedOutputItems(recipe?.output_item_id)}</select><div class="muted">${producedRows.length ? "Only produced items appear here." : "Create a produced item first from Produced Items."}</div></div>
           <div><label>Standard Output Qty</label><input name="output_qty" type="number" step="0.001" class="input" required value="${esc(recipe?.output_qty ?? 1)}"></div>
           <div><label>Output Unit</label>${unitSelect("output_unit", recipe?.output_unit || outputUnitForItem(item(recipe?.output_item_id)) || "", "required")}</div>
           <div><label>Status</label><select name="is_active"><option value="true">Active</option><option value="false">Inactive</option></select></div>
