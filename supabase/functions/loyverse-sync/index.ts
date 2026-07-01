@@ -102,7 +102,8 @@ serve(async req => {
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const serviceKey = Deno.env.get("MANDINA_SERVICE_ROLE_KEY")!;
+    if (!serviceKey) return json({ error: "Missing MANDINA_SERVICE_ROLE_KEY secret." }, 500);
     const supabase = createClient(supabaseUrl, serviceKey);
 
     const auth = req.headers.get("Authorization") || "";
