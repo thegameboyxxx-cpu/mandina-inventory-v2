@@ -7,7 +7,7 @@ const corsHeaders = {
 };
 
 const LOYVERSE_URL = "https://api.loyverse.com/v1.0";
-const FUNCTION_VERSION = "2026-07-02.3";
+const FUNCTION_VERSION = "2026-07-02.4";
 
 function json(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify({ function_version: FUNCTION_VERSION, ...body }), {
@@ -102,7 +102,8 @@ serve(async req => {
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const anonKey = req.headers.get("apikey") || Deno.env.get("SUPABASE_ANON_KEY") || "";
+    if (!anonKey) return json({ error: "Missing Supabase anon key." }, 500);
     const serviceKey = Deno.env.get("MANDINA_SERVICE_ROLE_KEY")!;
     if (!serviceKey) return json({ error: "Missing MANDINA_SERVICE_ROLE_KEY secret." }, 500);
     const authClient = createClient(supabaseUrl, anonKey);
