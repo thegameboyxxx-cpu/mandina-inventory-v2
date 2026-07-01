@@ -7,12 +7,38 @@ const corsHeaders = {
 };
 
 const LOYVERSE_URL = "https://api.loyverse.com/v1.0";
+const FUNCTION_VERSION = "2026-07-02.2";
 
 function json(body: Record<string, unknown>, status = 200) {
-  return new Response(JSON.stringify(body), {
+  return new Response(JSON.stringify({ function_version: FUNCTION_VERSION, ...body }), {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+}
+
+function textValue(value: unknown) {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (value instanceof Error) return value.message;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function errorBody(err: unknown) {
+  const obj = err && typeof err === "object" ? err as Record<string, unknown> : null;
+  const message = obj?.message && obj.message !== "[object Object]"
+    ? textValue(obj.message)
+    : textValue(err);
+  return {
+    error: message || "Unknown Edge Function error",
+    detail: textValue(obj?.details || obj?.detail),
+    hint: textValue(obj?.hint),
+    code: textValue(obj?.code),
+    raw_error: obj ? JSON.stringify(obj) : textValue(err),
+  };
 }
 
 async function loyverseGet(token: string, path: string) {
@@ -226,14 +252,6 @@ serve(async req => {
 
     return json({ error: "Unknown action." }, 400);
   } catch (err) {
-    const detail = err && typeof err === "object" && "details" in err ? String((err as { details?: unknown }).details || "") : "";
-    const hint = err && typeof err === "object" && "hint" in err ? String((err as { hint?: unknown }).hint || "") : "";
-    const code = err && typeof err === "object" && "code" in err ? String((err as { code?: unknown }).code || "") : "";
-    return json({
-      error: err instanceof Error ? err.message : String(err),
-      detail,
-      hint,
-      code,
-    }, 500);
+    return json(errorBody(err), 500);
   }
 });
