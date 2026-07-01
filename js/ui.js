@@ -9,6 +9,7 @@ import { renderReceiving } from "./modules/receiving.js";
 import { renderProduction } from "./modules/production.js";
 import { renderStock } from "./modules/stock.js";
 import { renderCounts } from "./modules/counts.js";
+import { renderMenuItems } from "./modules/menuItems.js";
 
 
 export function renderShell(){
@@ -37,12 +38,13 @@ export function setPage(page){
 }
 
 export async function refreshCurrent(){
-  const titles = { dashboard:"Dashboard", suppliers:"Suppliers", items:"Items", producedItems:"Produced Items", purchase:"Purchase Orders", receiving:"Receiving", stock:"Stock", production:"Production", counts:"Daily Count" };
+  const titles = { dashboard:"Dashboard", suppliers:"Suppliers", items:"Items", producedItems:"Produced Items", menuItems:"Menu Items", purchase:"Purchase Orders", receiving:"Receiving", stock:"Stock", production:"Production", counts:"Daily Count" };
   $("pageTitle").textContent = titles[state.page] || "Mandina";
   if(state.page === "dashboard") return renderDashboard();
   if(state.page === "suppliers") return renderSuppliers();
   if(state.page === "items") return renderItemsSimple();
   if(state.page === "producedItems") return renderProducedItems();
+  if(state.page === "menuItems") return renderMenuItems();
   if(state.page === "purchase") return renderPurchaseOrders();
   if(state.page === "receiving") return renderReceiving();
   if(state.page === "stock") return renderStock();
