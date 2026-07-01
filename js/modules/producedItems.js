@@ -10,6 +10,8 @@ const options = (rows, selected, labelFn) => '<option value="">-- Select --</opt
 const itemLabel = item => item ? `${item.name}${item.name_ar ? " / " + item.name_ar : ""}` : "";
 const categoryName = id => state.categories.find(c => c.id === id)?.name || "";
 const isProducedItem = item => item?.item_type === "produced";
+const productionKind = item => item?.production_kind || "food_production";
+const productionKindLabel = value => value === "fill_up" ? "Fill Up" : "Food Production";
 
 export async function renderProducedItems() {
   if (!isManager()) return $("content").innerHTML = showError("Staff users cannot access Produced Items.");
@@ -51,17 +53,18 @@ function renderProducedTable() {
 
   $("producedItemsTable").innerHTML = `
     <table>
-      <thead><tr><th>Produced Item</th><th>Category</th><th>Stock Unit</th><th>Minimum Level</th><th>Recipe/Sales Control</th><th>Status</th><th></th></tr></thead>
+      <thead><tr><th>Produced Item</th><th>Production Type</th><th>Category</th><th>Stock Unit</th><th>Minimum Level</th><th>Recipe/Sales Control</th><th>Status</th><th></th></tr></thead>
       <tbody>
         ${rows.map(item => `<tr>
           <td><b>${esc(itemLabel(item))}</b></td>
+          <td>${esc(productionKindLabel(productionKind(item)))}</td>
           <td>${esc(categoryName(item.category_id))}</td>
           <td>${esc(item.stock_unit || "")}</td>
           <td>${item.reorder_level ?? 0} ${esc(item.stock_unit || "")}</td>
           <td>${item.is_recipe_controlled ? '<span class="badge green">Yes</span>' : '<span class="badge gold">Count only</span>'}</td>
           <td>${item.active === false ? '<span class="badge red">Inactive</span>' : '<span class="badge green">Active</span>'}</td>
           <td><button class="btn secondary small edit-produced-item" data-id="${esc(item.id)}">Edit</button></td>
-        </tr>`).join("") || '<tr><td colspan="7" class="muted">No produced items yet.</td></tr>'}
+        </tr>`).join("") || '<tr><td colspan="8" class="muted">No produced items yet.</td></tr>'}
       </tbody>
     </table>
   `;
@@ -84,6 +87,7 @@ function openProducedItemModal(item = null) {
         <div class="form-grid">
           <div><label>Item Name</label><input name="name" class="input" required value="${esc(item?.name || "")}"></div>
           <div><label>Arabic Name</label><input name="name_ar" class="input" value="${esc(item?.name_ar || "")}"></div>
+          <div><label>Production Type</label><select name="production_kind"><option value="food_production">Food Production</option><option value="fill_up">Fill Up</option></select><div class="muted">Used to filter production runs.</div></div>
           <div><label>Category</label><select name="category_id">${options(state.categories, item?.category_id, c => c.name)}</select></div>
           <div><label>Stock Unit</label>${unitSelect("stock_unit", item?.stock_unit || "", "required")}<div class="muted">Used for stock, recipes, counts, waste and sales.</div></div>
           <div><label>Minimum Stock Level</label><input name="reorder_level" type="number" step="0.001" class="input" value="${esc(item?.reorder_level ?? "")}"><div class="muted">Optional alert level for prepared stock.</div></div>
@@ -100,6 +104,7 @@ function openProducedItemModal(item = null) {
 
   if (item?.active === false) document.querySelector("[name='active']").value = "false";
   if (item?.is_recipe_controlled) document.querySelector("[name='is_recipe_controlled']").value = "true";
+  document.querySelector("[name='production_kind']").value = productionKind(item);
 
   $("producedItemForm").onsubmit = async e => {
     e.preventDefault();
@@ -112,6 +117,7 @@ function openProducedItemModal(item = null) {
       category_id: form.get("category_id") || null,
       primary_supplier_id: null,
       item_type: "produced",
+      production_kind: form.get("production_kind") || "food_production",
       receiving_unit: null,
       purchase_package_type: null,
       purchase_package_qty: 1,

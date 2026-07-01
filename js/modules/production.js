@@ -9,7 +9,7 @@ let recipeInputs = [];
 let batches = [];
 let stockBalances = [];
 let batchMovements = [];
-let filters = { search: "", recipe_id: "", status: "" };
+let filters = { search: "", recipe_id: "", status: "", production_kind: "" };
 
 const same = (a, b) => String(a || "").toLowerCase().trim() === String(b || "").toLowerCase().trim();
 const today = () => new Date().toISOString().slice(0, 10);
@@ -19,6 +19,8 @@ const recipeName = r => r?.name || `Recipe-${String(r?.id || "").slice(0, 8)}`;
 const batchNo = b => b?.batch_number || `PB-${String(b?.id || "").slice(0, 8)}`;
 const inputQty = x => Number(x.qty_per_base ?? x.qty ?? 0);
 const activeRecipe = r => r?.is_active !== false && r?.active !== false;
+const productionKind = it => it?.production_kind || "food_production";
+const productionKindLabel = value => value === "fill_up" ? "Fill Up" : "Food Production";
 
 function branchName() {
   const b = (state.branches || []).find(x => x.id === state.currentBranchId) || {};
@@ -109,6 +111,7 @@ export async function renderProduction() {
           <h2>Production</h2>
           <div class="toolbar">
             <input id="prodSearch" class="input" placeholder="Search recipes or batches...">
+            <select id="prodKindFilter"><option value="">All production</option><option value="fill_up">Fill Up</option><option value="food_production">Food Production</option></select>
             <select id="prodRecipeFilter"><option value="">All recipes</option>${recipes.map(r => `<option value="${esc(r.id)}">${esc(recipeName(r))}</option>`).join("")}</select>
             <select id="prodStatusFilter"><option value="">All status</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select>
             ${isManager() ? `<button class="btn secondary" id="newRecipeBtn">+ Recipe Setup</button>` : ""}
@@ -122,7 +125,7 @@ export async function renderProduction() {
       </div>
 
       <div class="card" style="margin-top:16px">
-        <div class="section-head"><h2>Production Recipes</h2></div>
+        <div class="section-head"><h2>Productions</h2></div>
         <div id="recipesTable"></div>
       </div>
 
@@ -133,9 +136,11 @@ export async function renderProduction() {
     `;
 
     $("prodSearch").value = filters.search;
+    $("prodKindFilter").value = filters.production_kind;
     $("prodRecipeFilter").value = filters.recipe_id;
     $("prodStatusFilter").value = filters.status;
     $("prodSearch").oninput = e => { filters.search = e.target.value; renderProductionTables(); };
+    $("prodKindFilter").onchange = e => { filters.production_kind = e.target.value; renderProductionTables(); };
     $("prodRecipeFilter").onchange = e => { filters.recipe_id = e.target.value; renderProductionTables(); };
     $("prodStatusFilter").onchange = e => { filters.status = e.target.value; renderProductionTables(); };
     if ($("newRecipeBtn")) $("newRecipeBtn").onclick = () => openRecipeModal();
@@ -149,9 +154,13 @@ export async function renderProduction() {
 
 function renderProductionTables() {
   const q = filters.search.toLowerCase();
-  const recipeRows = recipes.filter(r => JSON.stringify(r).toLowerCase().includes(q));
+  const recipeKindMatches = r => !filters.production_kind || productionKind(item(r.output_item_id)) === filters.production_kind;
+  const recipeRows = recipes
+    .filter(recipeKindMatches)
+    .filter(r => JSON.stringify(r).toLowerCase().includes(q));
   const batchRows = batches.filter(b =>
     (!filters.recipe_id || b.recipe_id === filters.recipe_id) &&
+    (!filters.production_kind || productionKind(item(b.output_item_id)) === filters.production_kind) &&
     (!filters.status || (b.status || "completed") === filters.status) &&
     JSON.stringify(b).toLowerCase().includes(q)
   );
@@ -171,7 +180,7 @@ function renderProductionTables() {
 
   $("recipesTable").innerHTML = `
     <table>
-      <thead><tr><th>Recipe</th><th>Output Item</th><th>Standard Output</th><th>Scaling Base</th><th>Inputs</th><th>Status</th><th></th></tr></thead>
+      <thead><tr><th>Production</th><th>Type</th><th>Output Item</th><th>Standard Output</th><th>Scaling Base</th><th>Inputs</th><th>Status</th><th></th></tr></thead>
       <tbody>
         ${recipeRows.map(r => {
           const out = item(r.output_item_id);
@@ -180,6 +189,7 @@ function renderProductionTables() {
           const inputs = recipeInputsFor(r.id);
           return `<tr>
             <td><b>${esc(recipeName(r))}</b><div class="muted">${esc(r.notes || "")}</div></td>
+            <td>${esc(productionKindLabel(productionKind(out)))}</td>
             <td>${esc(itemLabel(out))}</td>
             <td>${qty(r.output_qty || 0)} ${esc(r.output_unit || outputUnitForItem(out))}</td>
             <td>${scaleItem ? `${esc(itemLabel(scaleItem))} (${qty(r.batch_main_input_qty || inputQty(scale))})` : "-"}</td>
@@ -190,7 +200,7 @@ function renderProductionTables() {
               ${activeRecipe(r) ? `<button class="btn small make-batch" data-id="${esc(r.id)}">Produce</button>` : ""}
             </td>
           </tr>`;
-        }).join("") || '<tr><td colspan="7" class="muted">No recipes yet.</td></tr>'}
+        }).join("") || '<tr><td colspan="8" class="muted">No productions yet.</td></tr>'}
       </tbody>
     </table>
   `;
@@ -408,9 +418,9 @@ function openRecipeModal(recipe = null) {
 }
 
 function openBatchModal(recipe = null) {
-  const activeRecipes = recipes.filter(activeRecipe);
+  const activeRecipes = recipes.filter(r => activeRecipe(r) && (!filters.production_kind || productionKind(item(r.output_item_id)) === filters.production_kind || r.id === recipe?.id));
   const selected = recipe || activeRecipes[0];
-  if (!activeRecipes.length) return toast("Create an active recipe first.", "error");
+  if (!activeRecipes.length) return toast(filters.production_kind ? `No active ${productionKindLabel(filters.production_kind)} productions found.` : "Create an active production first.", "error");
 
   openModal(`
     <div class="modal-head"><h3>Production Run</h3><button class="btn secondary small" onclick="closeModal()">x</button></div>
@@ -419,7 +429,7 @@ function openBatchModal(recipe = null) {
         <div class="form-grid">
           <div><label>Branch</label><input class="input" value="${esc(branchName())}" disabled></div>
           <div><label>Production Date</label><input name="production_date" type="date" class="input" value="${today()}"></div>
-          <div><label>Recipe</label><select name="recipe_id" id="batchRecipeSelect">${activeRecipes.map(r => `<option value="${esc(r.id)}" ${r.id === selected?.id ? "selected" : ""}>${esc(recipeName(r))}</option>`).join("")}</select></div>
+          <div><label>Production</label><select name="recipe_id" id="batchRecipeSelect">${activeRecipes.map(r => `<option value="${esc(r.id)}" ${r.id === selected?.id ? "selected" : ""}>${esc(recipeName(r))}</option>`).join("")}</select></div>
           <div id="mainInputWrap"><label>Main Input Used</label><input name="main_input_qty" id="mainInputQty" type="number" step="0.001" class="input"></div>
           <div><label>Actual Output Qty</label><input name="actual_output_qty" id="actualOutputQty" type="number" step="0.001" class="input"></div>
           <div><label>Waste/Loss Qty</label><input name="waste_qty" id="wasteQty" type="number" step="0.001" class="input" value="0"></div>
