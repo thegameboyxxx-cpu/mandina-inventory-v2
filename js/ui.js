@@ -10,6 +10,8 @@ import { renderProduction } from "./modules/production.js";
 import { renderStock } from "./modules/stock.js";
 import { renderCounts } from "./modules/counts.js";
 import { renderMenuItems } from "./modules/menuItems.js";
+import { renderWaste } from "./modules/waste.js";
+import { renderSales } from "./modules/sales.js";
 
 
 export function renderShell(){
@@ -38,7 +40,7 @@ export function setPage(page){
 }
 
 export async function refreshCurrent(){
-  const titles = { dashboard:"Dashboard", suppliers:"Suppliers", items:"Items", producedItems:"Produced Items", menuItems:"Menu Items", purchase:"Purchase Orders", receiving:"Receiving", stock:"Stock", production:"Production", counts:"Daily Count" };
+  const titles = { dashboard:"Dashboard", suppliers:"Suppliers", items:"Items", producedItems:"Produced Items", menuItems:"Menu Items", purchase:"Purchase Orders", receiving:"Receiving", stock:"Stock", production:"Production", counts:"Daily Count", waste:"Wastage", sales:"Sales" };
   $("pageTitle").textContent = titles[state.page] || "Mandina";
   if(state.page === "dashboard") return renderDashboard();
   if(state.page === "suppliers") return renderSuppliers();
@@ -50,13 +52,15 @@ export async function refreshCurrent(){
   if(state.page === "stock") return renderStock();
   if(state.page === "production") return renderProduction();
   if(state.page === "counts") return renderCounts();
+  if(state.page === "waste") return renderWaste();
+  if(state.page === "sales") return renderSales();
 }
 
 export function bindNavigation(){
   document.querySelectorAll("#nav button").forEach(btn=>{
     btn.onclick = ()=>{
       const page = btn.dataset.page;
-      if(btn.classList.contains("soon") && !["receiving", "counts"].includes(page)){
+      if(btn.classList.contains("soon") && !["receiving", "counts", "waste", "sales"].includes(page)){
         toast("This module is planned. We will build it in the next phases.");
         return;
       }
