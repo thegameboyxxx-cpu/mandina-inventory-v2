@@ -7,7 +7,7 @@ const corsHeaders = {
 };
 
 const LOYVERSE_URL = "https://api.loyverse.com/v1.0";
-const FUNCTION_VERSION = "2026-07-02.2";
+const FUNCTION_VERSION = "2026-07-02.3";
 
 function json(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify({ function_version: FUNCTION_VERSION, ...body }), {
@@ -102,14 +102,16 @@ serve(async req => {
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const serviceKey = Deno.env.get("MANDINA_SERVICE_ROLE_KEY")!;
     if (!serviceKey) return json({ error: "Missing MANDINA_SERVICE_ROLE_KEY secret." }, 500);
+    const authClient = createClient(supabaseUrl, anonKey);
     const supabase = createClient(supabaseUrl, serviceKey);
 
     const auth = req.headers.get("Authorization") || "";
     const jwt = auth.replace("Bearer ", "");
-    const { data: userData, error: userError } = await supabase.auth.getUser(jwt);
-    if (userError || !userData.user) return json({ error: "Not authenticated." }, 401);
+    const { data: userData, error: userError } = await authClient.auth.getUser(jwt);
+    if (userError || !userData.user) return json({ error: "Not authenticated.", detail: userError?.message || "" }, 401);
 
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
