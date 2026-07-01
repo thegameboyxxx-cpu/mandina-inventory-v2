@@ -2,6 +2,7 @@ import { state, isManager } from "../state.js";
 import { $, esc, money, qty, showError, toast, openModal, closeModal } from "../utils.js";
 import { unitOptions } from "../units.js";
 import { safeSelect, insertRow, updateRow, deleteRows } from "../services/db.js";
+import { loyverseSync } from "../services/loyverse.js";
 import { loadItems } from "./items.js";
 
 let menuItems = [];
@@ -38,6 +39,7 @@ export async function renderMenuItems() {
               <option value="active">Active</option>
               <option value="inactive">Inactive</option>
             </select>
+            <button class="btn secondary" id="syncLoyverseMenuBtn">Sync from Loyverse</button>
             <button class="btn" id="addMenuItemBtn">+ Add Menu Item</button>
           </div>
         </div>
@@ -52,6 +54,7 @@ export async function renderMenuItems() {
     $("menuStatusFilter").value = filters.status;
     $("menuSearch").oninput = e => { filters.search = e.target.value; renderMenuTable(); };
     $("menuStatusFilter").onchange = e => { filters.status = e.target.value; renderMenuTable(); };
+    $("syncLoyverseMenuBtn").onclick = openLoyverseMenuSyncModal;
     $("addMenuItemBtn").onclick = () => openMenuItemModal();
     renderMenuTable();
   } catch (e) {
@@ -73,7 +76,7 @@ function renderMenuTable() {
 
   $("menuItemsTable").innerHTML = `
     <table>
-      <thead><tr><th>Menu Item</th><th>Category</th><th>Price</th><th>Deductions</th><th>Status</th><th></th></tr></thead>
+      <thead><tr><th>Menu Item</th><th>Category</th><th>Price</th><th>Deductions</th><th>Status</th><th>Source</th><th></th></tr></thead>
       <tbody>
         ${rows.map(item => {
           const lines = componentsFor(item.id);
@@ -86,9 +89,10 @@ function renderMenuTable() {
               return `<div>${esc(itemLabel(si))}: ${qty(line.qty_per_portion || 0)} ${esc(line.unit || si?.stock_unit || "")}</div>`;
             }).join("") + (lines.length > 3 ? `<div class="muted">+${lines.length - 3} more</div>` : "") : '<span class="badge red">No deductions</span>'}</td>
             <td>${activeMenu(item) ? '<span class="badge green">Active</span>' : '<span class="badge red">Inactive</span>'}</td>
+            <td>${item.loyverse_variant_id ? '<span class="badge blue">Loyverse</span>' : '<span class="badge gold">Manual</span>'}</td>
             <td><button class="btn secondary small edit-menu-item" data-id="${esc(item.id)}">Open</button></td>
           </tr>`;
-        }).join("") || '<tr><td colspan="6" class="muted">No menu items yet.</td></tr>'}
+        }).join("") || '<tr><td colspan="7" class="muted">No menu items yet.</td></tr>'}
       </tbody>
     </table>
   `;
@@ -96,6 +100,42 @@ function renderMenuTable() {
   document.querySelectorAll(".edit-menu-item").forEach(btn => {
     btn.onclick = () => openMenuItemModal(menuItems.find(item => item.id === btn.dataset.id));
   });
+}
+
+function openLoyverseMenuSyncModal() {
+  openModal(`
+    <div class="modal-head"><h3>Sync Menu Items from Loyverse</h3><button class="btn secondary small" onclick="closeModal()">x</button></div>
+    <form id="loyverseMenuSyncForm">
+      <div class="modal-body">
+        <div class="form-grid">
+          <div class="full"><label>Loyverse Token</label><input name="token" class="input" type="password" required autocomplete="off"></div>
+        </div>
+        <div class="muted" style="margin-top:10px">
+          This imports Loyverse items and variants as Menu Items. Existing stock deduction mappings stay unchanged.
+        </div>
+        <div id="loyverseMenuSyncStatus" class="muted" style="margin-top:12px"></div>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn secondary" onclick="closeModal()">Cancel</button>
+        <button class="btn">Sync Now</button>
+      </div>
+    </form>
+  `);
+
+  $("loyverseMenuSyncForm").onsubmit = async e => {
+    e.preventDefault();
+    const token = new FormData(e.target).get("token");
+    $("loyverseMenuSyncStatus").textContent = "Connecting to Loyverse...";
+    try {
+      const result = await loyverseSync("sync-menu-items", { token });
+      toast(`Synced ${result.synced_menu_variants || 0} Loyverse menu items.`, "ok");
+      closeModal();
+      renderMenuItems();
+    } catch (err) {
+      $("loyverseMenuSyncStatus").textContent = "";
+      toast("Loyverse sync failed: " + err.message, "error");
+    }
+  };
 }
 
 function blankComponent() {

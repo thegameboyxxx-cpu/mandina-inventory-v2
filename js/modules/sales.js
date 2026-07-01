@@ -1,17 +1,19 @@
 import { state, isManager } from "../state.js";
 import { $, esc, money, qty, showError, toast, openModal, closeModal, today } from "../utils.js";
 import { safeSelect, insertRow, updateRow, deleteRows } from "../services/db.js";
+import { loyverseSync } from "../services/loyverse.js";
 import { loadItems } from "./items.js";
 
 let reports = [];
 let lines = [];
 let menuItems = [];
 let components = [];
+let filters = { from: "", to: "", source: "" };
 
 const menuName = m => m ? `${m.name}${m.name_ar ? " / " + m.name_ar : ""}` : "Menu Item";
 const item = id => (state.items || []).find(i => i.id === id);
 const itemLabel = i => i ? `${i.name}${i.name_ar ? " / " + i.name_ar : ""}` : "Item";
-const reportNo = r => `SR-${String(r?.id || "").slice(0, 8)}`;
+const reportNo = r => r?.loyverse_receipt_number || `SR-${String(r?.id || "").slice(0, 8)}`;
 
 async function loadSalesData() {
   await loadItems();
@@ -31,12 +33,25 @@ export async function renderSales() {
       <div class="card">
         <div class="section-head">
           <h2>Sales</h2>
-          <div class="toolbar"><button class="btn" id="newSalesBtn">+ Manual Sales Entry</button></div>
+          <div class="toolbar">
+            <input id="salesFrom" class="input" type="date">
+            <input id="salesTo" class="input" type="date">
+            <select id="salesSourceFilter"><option value="">All source</option><option value="manual">Manual</option><option value="loyverse">Loyverse</option></select>
+            <button class="btn secondary" id="importLoyverseSalesBtn">Import Loyverse Sales</button>
+            <button class="btn" id="newSalesBtn">+ Manual Sales Entry</button>
+          </div>
         </div>
-        <div class="muted" style="margin-bottom:12px">Manual sales use Menu Item deduction mappings to create SALES_DEDUCTION stock movements.</div>
+        <div class="muted" style="margin-bottom:12px">Sales reports use Menu Item deduction mappings to create SALES_DEDUCTION stock movements when processed.</div>
         <div id="salesTable"></div>
       </div>
     `;
+    $("salesFrom").value = filters.from;
+    $("salesTo").value = filters.to;
+    $("salesSourceFilter").value = filters.source;
+    $("salesFrom").onchange = e => { filters.from = e.target.value; renderSalesTable(); };
+    $("salesTo").onchange = e => { filters.to = e.target.value; renderSalesTable(); };
+    $("salesSourceFilter").onchange = e => { filters.source = e.target.value; renderSalesTable(); };
+    $("importLoyverseSalesBtn").onclick = openLoyverseSalesImportModal;
     $("newSalesBtn").onclick = openSalesModal;
     renderSalesTable();
   } catch (e) {
@@ -49,30 +64,143 @@ function linesFor(reportId) {
 }
 
 function renderSalesTable() {
+  const filteredReports = reports.filter(r => {
+    const d = (r.report_date || "").slice(0, 10);
+    if (filters.from && d < filters.from) return false;
+    if (filters.to && d > filters.to) return false;
+    if (filters.source && (r.source || "manual") !== filters.source) return false;
+    return true;
+  });
+  const allLines = filteredReports.flatMap(r => linesFor(r.id));
+  const totalSales = filteredReports.reduce((s, r) => s + Number(r.total_sales_amount || linesFor(r.id).reduce((x, l) => x + Number(l.net_sales_amount || 0), 0)), 0);
+  const totalItems = filteredReports.reduce((s, r) => s + Number(r.total_items_sold || linesFor(r.id).reduce((x, l) => x + Number(l.qty_sold || 0), 0)), 0);
+  const byItem = new Map();
+  for (const line of allLines) {
+    const key = line.pos_item_name || menuName(menuItems.find(m => m.id === line.menu_item_id));
+    const prev = byItem.get(key) || { qty: 0, sales: 0 };
+    prev.qty += Number(line.qty_sold || 0);
+    prev.sales += Number(line.net_sales_amount || 0);
+    byItem.set(key, prev);
+  }
+  const topItems = [...byItem.entries()].sort((a, b) => b[1].qty - a[1].qty).slice(0, 5);
+
   $("salesTable").innerHTML = `
+    <div class="grid cards" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:14px">
+      <div class="card"><div class="stat-title">Reports</div><div><b>${filteredReports.length}</b></div></div>
+      <div class="card"><div class="stat-title">Items Sold</div><div><b>${qty(totalItems)}</b></div></div>
+      <div class="card"><div class="stat-title">Sales Amount</div><div><b>${money(totalSales)}</b></div></div>
+      <div class="card"><div class="stat-title">Top Item</div><div><b>${esc(topItems[0]?.[0] || "-")}</b></div></div>
+    </div>
+    ${topItems.length ? `<div class="card" style="margin-bottom:14px"><div class="stat-title">Top Sold Items</div>${topItems.map(([name, data]) => `<div>${esc(name)}: <b>${qty(data.qty)}</b> / ${money(data.sales)}</div>`).join("")}</div>` : ""}
     <table>
-      <thead><tr><th>Report</th><th>Date</th><th>Lines</th><th>Items Sold</th><th>Sales Amount</th><th>Status</th><th></th></tr></thead>
+      <thead><tr><th>Report</th><th>Date</th><th>Source</th><th>Lines</th><th>Items Sold</th><th>Sales Amount</th><th>Status</th><th></th></tr></thead>
       <tbody>
-        ${reports.map(r => {
+        ${filteredReports.map(r => {
           const reportLines = linesFor(r.id);
           return `<tr>
-            <td><b>${esc(reportNo(r))}</b><div class="muted">${esc(r.notes || "")}</div></td>
+            <td><b>${esc(reportNo(r))}</b><div class="muted">${esc(r.payment_summary || r.notes || "")}</div></td>
             <td>${esc((r.report_date || "").slice(0, 10))}</td>
+            <td><span class="badge ${r.source === "loyverse" ? "blue" : "gold"}">${esc(r.source || "manual")}</span></td>
             <td>${reportLines.length}</td>
             <td>${qty(r.total_items_sold || reportLines.reduce((s, l) => s + Number(l.qty_sold || 0), 0))}</td>
             <td>${money(r.total_sales_amount || reportLines.reduce((s, l) => s + Number(l.net_sales_amount || 0), 0))}</td>
             <td><span class="badge ${r.status === "confirmed" ? "green" : "gold"}">${esc(r.status || "draft")}</span></td>
-            <td>${r.status === "confirmed" ? "" : `<button class="btn green small process-sales" data-id="${esc(r.id)}">Process</button>`}</td>
+            <td>
+              <button class="btn secondary small view-sales" data-id="${esc(r.id)}">View</button>
+              ${r.status === "confirmed" ? "" : `<button class="btn green small process-sales" data-id="${esc(r.id)}">Process</button>`}
+            </td>
           </tr>`;
-        }).join("") || '<tr><td colspan="7" class="muted">No sales reports yet.</td></tr>'}
+        }).join("") || '<tr><td colspan="8" class="muted">No sales reports yet.</td></tr>'}
       </tbody>
     </table>
   `;
+  document.querySelectorAll(".view-sales").forEach(btn => btn.onclick = () => openSalesDetails(reports.find(r => r.id === btn.dataset.id)));
   document.querySelectorAll(".process-sales").forEach(btn => btn.onclick = () => processSales(reports.find(r => r.id === btn.dataset.id)));
 }
 
 function componentsFor(menuItemId) {
   return components.filter(c => c.menu_item_id === menuItemId);
+}
+
+function openLoyverseSalesImportModal() {
+  openModal(`
+    <div class="modal-head"><h3>Import Loyverse Sales</h3><button class="btn secondary small" onclick="closeModal()">x</button></div>
+    <form id="loyverseSalesImportForm">
+      <div class="modal-body">
+        <div class="form-grid">
+          <div><label>From</label><input name="from" type="date" class="input" value="${today()}" required></div>
+          <div><label>To</label><input name="to" type="date" class="input" value="${today()}" required></div>
+          <div class="full"><label>Loyverse Token</label><input name="token" type="password" class="input" required autocomplete="off"></div>
+        </div>
+        <div class="muted" style="margin-top:10px">
+          Receipts import as draft reports. Processing is separate so stock is deducted only after mappings are checked.
+        </div>
+        <div id="loyverseSalesImportStatus" class="muted" style="margin-top:12px"></div>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn secondary" onclick="closeModal()">Cancel</button>
+        <button class="btn">Import</button>
+      </div>
+    </form>
+  `);
+
+  $("loyverseSalesImportForm").onsubmit = async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const token = fd.get("token");
+    const from = fd.get("from");
+    const to = fd.get("to");
+    if (to < from) return toast("To date must be after From date.", "error");
+    $("loyverseSalesImportStatus").textContent = "Reading receipts from Loyverse...";
+    try {
+      const result = await loyverseSync("import-sales", {
+        token,
+        from,
+        to,
+        branch_id: state.currentBranchId,
+      });
+      toast(`Imported ${result.imported || 0} Loyverse receipts${result.skipped_confirmed ? `, skipped ${result.skipped_confirmed} confirmed` : ""}.`, "ok");
+      closeModal();
+      renderSales();
+    } catch (err) {
+      $("loyverseSalesImportStatus").textContent = "";
+      toast("Loyverse sales import failed: " + err.message, "error");
+    }
+  };
+}
+
+function openSalesDetails(report) {
+  if (!report) return;
+  const reportLines = linesFor(report.id);
+  openModal(`
+    <div class="modal-head"><h3>${esc(reportNo(report))}</h3><button class="btn secondary small" onclick="closeModal()">x</button></div>
+    <div class="modal-body">
+      <div class="grid cards" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:14px">
+        <div class="card"><div class="stat-title">Date</div><div><b>${esc((report.report_date || "").slice(0, 10))}</b></div></div>
+        <div class="card"><div class="stat-title">Source</div><div><b>${esc(report.source || "manual")}</b></div></div>
+        <div class="card"><div class="stat-title">Items Sold</div><div><b>${qty(report.total_items_sold || 0)}</b></div></div>
+        <div class="card"><div class="stat-title">Sales</div><div><b>${money(report.total_sales_amount || 0)}</b></div></div>
+      </div>
+      <div class="muted" style="margin-bottom:12px">${esc(report.payment_summary || report.notes || "")}</div>
+      <table>
+        <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th><th>Mapping</th><th>Note</th></tr></thead>
+        <tbody>
+          ${reportLines.map(line => {
+            const mi = menuItems.find(m => m.id === line.menu_item_id);
+            return `<tr>
+              <td>${esc(line.pos_item_name || menuName(mi))}</td>
+              <td>${qty(line.qty_sold || 0)}</td>
+              <td>${money(line.unit_price || 0)}</td>
+              <td>${money(line.net_sales_amount || 0)}</td>
+              <td>${mi ? `<span class="badge green">${esc(menuName(mi))}</span>` : '<span class="badge red">Not mapped</span>'}</td>
+              <td>${esc(line.notes || "")}</td>
+            </tr>`;
+          }).join("") || '<tr><td colspan="6" class="muted">No lines.</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+    <div class="modal-foot"><button class="btn secondary" onclick="closeModal()">Close</button></div>
+  `);
 }
 
 function menuOptions(selected) {
