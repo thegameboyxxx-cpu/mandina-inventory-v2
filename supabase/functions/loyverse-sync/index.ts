@@ -226,6 +226,14 @@ serve(async req => {
 
     return json({ error: "Unknown action." }, 400);
   } catch (err) {
-    return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+    const detail = err && typeof err === "object" && "details" in err ? String((err as { details?: unknown }).details || "") : "";
+    const hint = err && typeof err === "object" && "hint" in err ? String((err as { hint?: unknown }).hint || "") : "";
+    const code = err && typeof err === "object" && "code" in err ? String((err as { code?: unknown }).code || "") : "";
+    return json({
+      error: err instanceof Error ? err.message : String(err),
+      detail,
+      hint,
+      code,
+    }, 500);
   }
 });
