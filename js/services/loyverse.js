@@ -1,4 +1,5 @@
 import { state } from "../state.js";
+import { CONFIG } from "../config.js";
 
 function errorText(value) {
   if (!value) return "";
@@ -22,28 +23,31 @@ function functionErrorMessage(body, fallback) {
 }
 
 export async function loyverseSync(action, payload) {
-  const { data, error } = await state.db.functions.invoke("loyverse-sync", {
-    body: { action, ...payload },
+  const { data: sessionData, error: sessionError } = await state.db.auth.getSession();
+  if (sessionError) throw sessionError;
+  const token = sessionData?.session?.access_token;
+  if (!token) throw new Error("You must be logged in before syncing Loyverse.");
+
+  const res = await fetch(`${CONFIG.supabaseUrl}/functions/v1/loyverse-sync`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: CONFIG.supabaseAnonKey,
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ action, ...payload }),
   });
-  if (error) {
-    const context = error.context;
-    if (context?.json) {
-      try {
-        const body = await context.json();
-        throw new Error(functionErrorMessage(body, error.message));
-      } catch (parseError) {
-        if (parseError.message && parseError.message !== "Body is unusable") throw parseError;
-      }
-    }
-    if (context?.text) {
-      try {
-        const text = await context.text();
-        if (text) throw new Error(text);
-      } catch (parseError) {
-        if (parseError.message && parseError.message !== "Body is unusable") throw parseError;
-      }
-    }
-    throw error;
+
+  const text = await res.text();
+  let data;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { error: text };
+  }
+
+  if (!res.ok) {
+    throw new Error(functionErrorMessage(data, `Loyverse sync failed (${res.status}).`));
   }
   if (data?.error) throw new Error(functionErrorMessage(data, "Loyverse sync failed."));
   return data;
