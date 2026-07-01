@@ -242,7 +242,6 @@ function openNewCountModal() {
           expected_qty: system,
           counted_qty: null,
           count_unit: it.stock_unit || "",
-          variance: null,
           notes: null,
           requires_manager_review: true,
           approved_adjustment_qty: null,
@@ -400,7 +399,6 @@ function openCountEditor(count) {
     for (const line of localLines) {
       const payload = {
         counted_qty: line.counted_qty === "" ? null : line.counted_qty,
-        variance: line.variance === "" ? null : line.variance,
         variance_reason: line.variance_reason || null,
         notes: line.notes || null,
         requires_manager_review: Number(line.variance || 0) !== 0,
