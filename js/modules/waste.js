@@ -75,19 +75,23 @@ function renderWasteTable() {
         ${rows.map(w => {
           const it = item(w.item_id);
           return `<tr>
-            <td><b>${esc(wasteNo(w))}</b><div class="muted">${esc(w.notes || "")}</div></td>
+            <td><b>${esc(wasteNo(w))}</b></td>
             <td>${esc((w.waste_date || w.created_at || "").slice(0, 10))}</td>
             <td>${esc(itemLabel(it))}</td>
             <td>${qty(w.qty)} ${esc(w.unit || it?.stock_unit || "")}</td>
             <td>${esc(w.reason || "")}</td>
             <td><span class="badge ${(w.status || "recorded") === "cancelled" ? "red" : "green"}">${esc(w.status || "recorded")}</span></td>
             ${isManager() ? `<td>${esc(profileName(w.created_by))}</td>` : ""}
-            <td>${isManager() && (w.status || "recorded") !== "cancelled" ? `<button class="btn red small cancel-waste" data-id="${esc(w.id)}">Cancel</button>` : ""}</td>
+            <td>
+              <button class="btn secondary small view-waste" data-id="${esc(w.id)}">View</button>
+              ${isManager() && (w.status || "recorded") !== "cancelled" ? `<button class="btn red small cancel-waste" data-id="${esc(w.id)}">Cancel</button>` : ""}
+            </td>
           </tr>`;
         }).join("") || `<tr><td colspan="${isManager() ? 8 : 7}" class="muted">No waste entries yet.</td></tr>`}
       </tbody>
     </table>
   `;
+  document.querySelectorAll(".view-waste").forEach(btn => btn.onclick = () => openWasteDetails(wasteEntries.find(w => w.id === btn.dataset.id)));
   document.querySelectorAll(".cancel-waste").forEach(btn => btn.onclick = () => cancelWaste(wasteEntries.find(w => w.id === btn.dataset.id)));
 }
 
@@ -107,6 +111,7 @@ function openWasteModal() {
           <div><label>Unit</label><input name="unit" id="wasteUnit" class="input" required readonly></div>
           <div><label>Reason</label><select name="reason" required>${reasons.map(r => `<option value="${esc(r)}">${esc(r)}</option>`).join("")}</select></div>
           <div><label>Estimated Cost</label><input name="estimated_cost" type="number" step="0.01" class="input" value="0"></div>
+          <div class="full"><label>Photo</label><input name="photo" type="file" accept="image/*" class="input"><div class="muted">Optional. A small photo is saved with the waste entry.</div></div>
           <div class="full"><label>Notes</label><textarea name="notes" class="input" rows="2"></textarea></div>
         </div>
       </div>
@@ -126,6 +131,8 @@ function openWasteModal() {
     if (amount <= 0) return toast("Waste quantity must be greater than zero.", "error");
     if (fd.get("reason") === "Other" && !String(fd.get("notes") || "").trim()) return toast("Notes are required when reason is Other.", "error");
     try {
+      const photo = fd.get("photo");
+      const photoUrl = photo && photo.size ? await fileToDataUrl(photo) : null;
       const entry = await insertRow("waste_entries", {
         waste_number: `WE-${Date.now().toString().slice(-8)}`,
         branch_id: state.currentBranchId,
@@ -135,6 +142,7 @@ function openWasteModal() {
         unit: it.stock_unit || fd.get("unit"),
         reason: fd.get("reason"),
         notes: fd.get("notes") || null,
+        photo_url: photoUrl,
         estimated_cost: Number(fd.get("estimated_cost") || 0),
         status: "recorded",
         created_by: state.user.id,
@@ -148,6 +156,39 @@ function openWasteModal() {
       toast("Waste save failed: " + err.message, "error");
     }
   };
+}
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function openWasteDetails(entry) {
+  if (!entry) return;
+  const it = item(entry.item_id);
+  openModal(`
+    <div class="modal-head"><h3>${esc(wasteNo(entry))}</h3><button class="btn secondary small" onclick="closeModal()">x</button></div>
+    <div class="modal-body">
+      <div class="grid cards" style="grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:14px">
+        <div class="card"><div class="stat-title">Item</div><div><b>${esc(itemLabel(it))}</b></div></div>
+        <div class="card"><div class="stat-title">Qty</div><div><b>${qty(entry.qty)} ${esc(entry.unit || it?.stock_unit || "")}</b></div></div>
+        <div class="card"><div class="stat-title">Status</div><div><b>${esc(entry.status || "recorded")}</b></div></div>
+      </div>
+      <div class="form-grid">
+        <div><label>Date</label><input class="input" value="${esc((entry.waste_date || entry.created_at || "").slice(0, 10))}" disabled></div>
+        <div><label>Reason</label><input class="input" value="${esc(entry.reason || "")}" disabled></div>
+        <div><label>Estimated Cost</label><input class="input" value="${money(entry.estimated_cost || 0)}" disabled></div>
+        ${isManager() ? `<div><label>Recorded By</label><input class="input" value="${esc(profileName(entry.created_by))}" disabled></div>` : ""}
+        <div class="full"><label>Notes</label><textarea class="input" rows="4" disabled>${esc(entry.notes || "")}</textarea></div>
+        <div class="full"><label>Photo</label>${entry.photo_url ? `<img src="${esc(entry.photo_url)}" alt="Waste photo" style="max-width:100%;border-radius:12px;border:1px solid var(--line)">` : `<div class="muted">No photo attached.</div>`}</div>
+      </div>
+    </div>
+    <div class="modal-foot"><button class="btn secondary" onclick="closeModal()">Close</button></div>
+  `);
 }
 
 async function addMovement({ item_id, qty_change, stock_unit, reference_id, notes }) {
