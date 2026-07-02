@@ -123,11 +123,12 @@ function payrollRows() {
   }
   for (const row of byEmployee.values()) {
     row.deductionItems = mealDeductions(row.employee.id);
-    row.deductions = row.deductionItems.reduce((s, d) => s + d.amount, 0);
-    row.netPay = Math.max(0, row.grossPay - row.deductions);
+    row.grossPay = cents(row.grossPay);
+    row.deductions = cents(row.deductionItems.reduce((s, d) => s + d.amount, 0));
+    row.netPay = cents(Math.max(0, row.grossPay - row.deductions));
     row.paymentItems = periodPayments(row.employee.id);
-    row.paid = row.paymentItems.reduce((s, p) => s + Number(p.payment_amount || 0), 0);
-    row.due = Math.max(0, row.netPay - row.paid);
+    row.paid = cents(row.paymentItems.reduce((s, p) => s + Number(p.payment_amount || 0), 0));
+    row.due = cents(Math.max(0, row.netPay - row.paid));
   }
   return [...byEmployee.values()].sort((a, b) => String(a.employee.employee_number).localeCompare(String(b.employee.employee_number)));
 }
@@ -278,8 +279,10 @@ function openPayModal(row) {
     const amount = Number(Number(fd.get("payment_amount") || 0).toFixed(2));
     const method = fd.get("payment_method");
     if (amount <= 0) return toast("Payment amount must be more than zero.", "error");
-    if (amount > row.due) return toast("Payment amount cannot be more than the amount due.", "error");
-    if (method === "cash" && amount > cash) return toast("Not enough cash balance for this payment.", "error");
+    const due = cents(row.due);
+    const availableCash = cents(cash);
+    if (amount > due) return toast(`Payment amount cannot be more than the amount due (${money(due)}).`, "error");
+    if (method === "cash" && amount > availableCash) return toast("Not enough cash balance for this payment.", "error");
     try {
       await insertRow("payroll_payments", {
         branch_id: state.currentBranchId,
@@ -314,7 +317,11 @@ function cashBalance() {
   const cashPaid = payments
     .filter(p => p.status !== "voided" && p.payment_method === "cash")
     .reduce((s, p) => s + Number(p.payment_amount || 0), 0);
-  return counted - cashPaid;
+  return cents(counted - cashPaid);
+}
+
+function cents(value) {
+  return Number(Number(value || 0).toFixed(2));
 }
 
 function mealSummary(meal) {
