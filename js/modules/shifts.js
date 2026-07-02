@@ -4,6 +4,7 @@ import { safeSelect, insertRow, updateRow } from "../services/db.js";
 
 let employees = [];
 let shifts = [];
+let timeEntries = [];
 let templates = [];
 let templateLines = [];
 let view = { start: today(), mode: "week" };
@@ -27,6 +28,7 @@ const branchName = id => (state.branches || []).find(b => b.id === id)?.name || 
 async function loadShiftData() {
   employees = await safeSelect("employees", "*", { order: "employee_number" }).catch(() => []);
   shifts = await safeSelect("shift_schedules", "*", { eq: { branch_id: state.currentBranchId }, order: "shift_date" }).catch(() => []);
+  timeEntries = await safeSelect("time_entries", "*", { eq: { branch_id: state.currentBranchId }, order: "created_at", ascending: false }).catch(() => []);
   templates = await safeSelect("shift_templates", "*", { eq: { branch_id: state.currentBranchId }, order: "name" }).catch(() => []);
   templateLines = await safeSelect("shift_template_lines", "*").catch(() => []);
 }
@@ -81,7 +83,7 @@ function renderShiftPlanner() {
   view.start = $("shiftStart")?.value || view.start || today();
   view.mode = $("shiftMode")?.value || view.mode || "week";
   const days = view.mode === "week" ? weekDays(view.start) : [view.start];
-  const rows = shifts.filter(s => s.status !== "cancelled" && days.includes(s.shift_date));
+  const rows = plannerRows(days);
   const plannedHours = rows.reduce((sum, s) => sum + shiftHours(s), 0);
   const plannedCost = rows.reduce((sum, s) => sum + shiftCost(s), 0);
   const warnings = buildWarnings(days, rows);
@@ -89,9 +91,9 @@ function renderShiftPlanner() {
   $("shiftPlanner").innerHTML = `
     <div class="grid cards" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:14px">
       <div class="card"><div class="stat-title">Branch</div><div><b>${esc(branchName(state.currentBranchId))}</b></div></div>
-      <div class="card"><div class="stat-title">Shifts</div><div><b>${rows.length}</b></div></div>
-      <div class="card"><div class="stat-title">Planned Hours</div><div><b>${plannedHours.toFixed(2)}</b></div></div>
-      <div class="card"><div class="stat-title">Planned Cost</div><div><b>${money(plannedCost)}</b></div></div>
+      <div class="card"><div class="stat-title">Rows</div><div><b>${rows.length}</b></div></div>
+      <div class="card"><div class="stat-title">Hours</div><div><b>${plannedHours.toFixed(2)}</b></div></div>
+      <div class="card"><div class="stat-title">Cost</div><div><b>${money(plannedCost)}</b></div></div>
     </div>
     ${warnings.length ? `<div class="errorbox">${warnings.map(esc).join("<br>")}</div>` : ""}
     <div class="shift-timeline-wrap">
@@ -99,7 +101,7 @@ function renderShiftPlanner() {
       ${days.map(day => renderTimelineDay(day, rows.filter(s => s.shift_date === day), range)).join("")}
     </div>
   `;
-  document.querySelectorAll(".shift-pill").forEach(btn => {
+  document.querySelectorAll(".shift-pill:not(.actual)").forEach(btn => {
     btn.onclick = () => {
       if (btn.dataset.dragged === "true") {
         btn.dataset.dragged = "";
@@ -127,13 +129,14 @@ function renderTimeHeader(range) {
 function renderTimelineDay(day, dayShifts, range) {
   const layout = layoutShifts(dayShifts);
   const rowHeight = Math.max(56, layout.lanes * 46 + 12);
+  const isActual = day < today();
   const dayCost = dayShifts.reduce((sum, s) => sum + shiftCost(s), 0);
   return `
     <section class="shift-time-row" style="--time-width:${range.width}px;--row-height:${rowHeight}px">
       <div class="shift-day-label">
         <b>${esc(dayLabel(day))}</b>
         <span>${esc(day)}</span>
-        <small>${dayShifts.length} shifts / ${money(dayCost)}</small>
+        <small>${isActual ? "Actual" : "Planned"} - ${dayShifts.length} shifts / ${money(dayCost)}</small>
       </div>
       <div class="shift-time-lane">
         ${layout.items.map(item => {
@@ -144,16 +147,47 @@ function renderTimelineDay(day, dayShifts, range) {
           const end = endMinutesAbs(s);
           const left = minuteLeft(start, range);
           const width = Math.max(60, minuteLeft(end, range) - left);
-          return `<button class="shift-pill role-${esc(role)}" data-id="${esc(s.id)}" data-range-start="${range.start}" data-range-end="${range.end}" data-range-width="${range.width}" style="left:${left}px;top:${8 + item.lane * 46}px;width:${width}px">
-            <span class="shift-resize left" data-edge="left"></span>
+          return `<button class="shift-pill role-${esc(role)} ${s.source === "actual" ? "actual" : ""}" data-id="${esc(s.id)}" data-range-start="${range.start}" data-range-end="${range.end}" data-range-width="${range.width}" style="left:${left}px;top:${8 + item.lane * 46}px;width:${width}px">
+            ${s.source === "actual" ? "" : '<span class="shift-resize left" data-edge="left"></span>'}
             <b>${esc(employeeLabel(e))}</b>
-            <span>${esc(timeShort(s.start_time))}-${esc(timeShort(s.end_time))} - ${esc(roleLabel(role))}</span>
-            <span class="shift-resize right" data-edge="right"></span>
+            <span>${esc(timeShort(s.start_time))}-${esc(timeShort(s.end_time))} - ${esc(roleLabel(role))}${s.source === "actual" ? " - Actual" : ""}</span>
+            ${s.source === "actual" ? "" : '<span class="shift-resize right" data-edge="right"></span>'}
           </button>`;
         }).join("") || '<div class="muted" style="padding:12px">No shifts planned.</div>'}
       </div>
     </section>
   `;
+}
+
+function plannerRows(days) {
+  return days.flatMap(day => day < today() ? actualRowsForDay(day) : plannedRowsForDay(day));
+}
+
+function plannedRowsForDay(day) {
+  return shifts
+    .filter(s => s.status !== "cancelled" && s.shift_date === day)
+    .map(s => ({ ...s, source: "planned" }));
+}
+
+function actualRowsForDay(day) {
+  return timeEntries
+    .filter(entry => (entry.clock_in_at || entry.created_at || "").slice(0, 10) === day)
+    .map(entry => {
+      const e = employee(entry.employee_id);
+      const start = toLocalTime(entry.clock_in_at || entry.created_at);
+      const end = entry.clock_out_at ? toLocalTime(entry.clock_out_at) : timeShort(start);
+      return {
+        id: entry.id,
+        employee_id: entry.employee_id,
+        shift_date: day,
+        start_time: start,
+        end_time: entry.clock_out_at ? end : start,
+        role: e?.operational_role || "front_staff",
+        status: entry.status,
+        source: "actual",
+        paid_minutes: entry.paid_minutes,
+      };
+    });
 }
 
 function layoutShifts(dayShifts) {
@@ -477,6 +511,7 @@ function minutesToTime(value) {
 }
 
 function timeRange(rows) {
+  if (!rows.length) return { start: 8 * 60, end: 27 * 60, width: 19 * 92 };
   const starts = rows.map(s => minutes(s.start_time));
   const ends = rows.map(s => endMinutesAbs(s));
   const start = Math.max(0, Math.min(...starts, 8 * 60) - 60);
@@ -489,9 +524,16 @@ function minuteLeft(value, range) {
 }
 
 function shiftHours(s) {
+  if (s.source === "actual" && Number(s.paid_minutes || 0) > 0) return Number(s.paid_minutes || 0) / 60;
   return Math.max(0, endMinutesAbs(s) - minutes(s.start_time)) / 60;
 }
 
 function shiftCost(s) {
   return shiftHours(s) * Number(employee(s.employee_id)?.hourly_rate || 0);
+}
+
+function toLocalTime(value) {
+  if (!value) return "00:00";
+  const d = new Date(value);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }

@@ -146,7 +146,6 @@ function openStaffMealModal() {
         item_name: menuName(menu),
         qty: amount,
         unit_price: Number(menu?.sale_price || 0),
-        line_total: total,
         estimated_cost: total,
       });
       toast("Staff meal submitted.", "ok");
