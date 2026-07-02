@@ -62,8 +62,8 @@ function renderPayrollView() {
       <div class="card"><div class="stat-title">Saved Periods</div><div><b>${periods.length}</b></div></div>
     </div>
     <table>
-      <thead><tr><th>Employee</th><th>Rate</th><th>Paid Hours</th><th>Gross Pay</th><th>Entries</th></tr></thead>
-      <tbody>${rows.map(r => `<tr><td>${esc(employeeLabel(r.employee))}</td><td>${money(r.rate)}</td><td>${r.hours.toFixed(2)}</td><td>${money(r.pay)}</td><td>${r.entries.length}</td></tr>`).join("") || '<tr><td colspan="5" class="muted">No clocked-out time entries in this period.</td></tr>'}</tbody>
+      <thead><tr><th>Employee</th><th>Rate</th><th>Paid Time</th><th>Gross Pay</th><th>Entries</th></tr></thead>
+      <tbody>${rows.map(r => `<tr><td>${esc(employeeLabel(r.employee))}</td><td>${money(r.rate)}</td><td>${r.minutes} min (${r.hours.toFixed(2)}h)</td><td>${money(r.pay)}</td><td>${r.entries.length}</td></tr>`).join("") || '<tr><td colspan="5" class="muted">No clocked-out time entries in this period.</td></tr>'}</tbody>
     </table>
     <div style="margin-top:18px">
       <h3 style="margin:0 0 10px">Recent Payroll Periods</h3>
@@ -83,10 +83,12 @@ function payrollRows() {
   for (const entry of periodEntries) {
     const emp = employee(entry.employee_id);
     if (!emp) continue;
-    const row = byEmployee.get(emp.id) || { employee: emp, rate: Number(emp.hourly_rate || 0), hours: 0, pay: 0, entries: [] };
-    const hours = Number(entry.paid_minutes || 0) / 60;
+    const row = byEmployee.get(emp.id) || { employee: emp, rate: Number(emp.hourly_rate || 0), minutes: 0, hours: 0, pay: 0, entries: [] };
+    const paidMinutes = exactPaidMinutes(entry);
+    const hours = paidMinutes / 60;
+    row.minutes += paidMinutes;
     row.hours += hours;
-    row.pay += hours * row.rate;
+    row.pay += paidMinutes * (row.rate / 60);
     row.entries.push(entry);
     byEmployee.set(emp.id, row);
   }
@@ -132,4 +134,12 @@ function weekStart(date) {
   const offset = (d.getDay() + 6) % 7;
   d.setDate(d.getDate() - offset);
   return d.toISOString().slice(0, 10);
+}
+
+function exactPaidMinutes(entry) {
+  if (entry.clock_in_at && entry.clock_out_at) {
+    const total = Math.max(0, Math.round((new Date(entry.clock_out_at) - new Date(entry.clock_in_at)) / 60000));
+    return Math.max(0, total - Number(entry.break_minutes || 0));
+  }
+  return Number(entry.paid_minutes || 0);
 }
