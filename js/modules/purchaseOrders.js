@@ -80,6 +80,11 @@ function lineTotal(l){
   return sameUnit(unit,cost) ? Number(l.ordered_qty||0) * Number(l.unit_price||0) : 0;
 }
 function lineTotalText(l){ return sameUnit(l.unit||l.order_unit,l.cost_unit) ? money(lineTotal(l)) : "Pending receiving"; }
+function poStatus(po){ return po?.status || "draft"; }
+function poHasReceiving(po){ return po ? relatedNotes(po.id).length > 0 : false; }
+function canEditPo(po){ return ["draft", "", null, undefined].includes(po?.status); }
+function canCancelPo(po){ return po && ["draft", "approved"].includes(poStatus(po)) && !poHasReceiving(po); }
+function canDeletePo(po){ return po && poStatus(po) === "draft" && !poHasReceiving(po); }
 function statusBadge(st){
   const s = st || "draft";
   const cls = s === "approved" ? "blue" : s === "draft" ? "gold" : s.includes("received") ? "green" : s === "closed" || s === "cancelled" ? "red" : "gold";
@@ -156,7 +161,7 @@ const blankLine = () => ({ item_id:"", ordered_qty:1, unit:"", order_unit:"", co
 function lineFromItem(item){ const u=item.receiving_unit || item.purchase_package_type || item.stock_unit; return { item_id:item.id, ordered_qty:Number(item.reorder_qty||1), unit:u, order_unit:u, cost_unit:item.cost_unit||item.stock_unit, unit_price:Number(item.default_purchase_price||0), notes:"" }; }
 
 async function openPoModal(po=null){
-  const isEdit=!!po, lines=isEdit?await loadPoLines(po.id):[blankLine()], locked=po&&!["draft",null,undefined,""].includes(po.status);
+  const isEdit=!!po, lines=isEdit?await loadPoLines(po.id):[blankLine()], locked=isEdit&&!canEditPo(po);
   openModal(`<div class="modal-head"><h3>${isEdit ? "Purchase Order " + esc(poNumber(po)) : "New Purchase Order"}</h3><button class="btn secondary small" onclick="closeModal()">✕</button></div>
   <form id="poForm"><div class="modal-body">
     <div class="form-grid">
@@ -178,6 +183,8 @@ async function openPoModal(po=null){
     ${isEdit ? `<button type="button" class="btn secondary" id="copyPoTextBtn">Copy Text</button><button type="button" class="btn secondary" id="pdfPoBtn">PDF</button><button type="button" class="btn secondary" id="emailPoBtn">Email Supplier</button>` : ""}
     ${isEdit && (po.status || "draft")==="draft" ? `<button type="button" class="btn green" id="approvePoBtn">Approve</button>` : ""}
     ${isEdit && (po.status || "")==="partially_received" ? `<button type="button" class="btn red" id="closePoBtn">Close PO / Accept Received Only</button>` : ""}
+    ${isEdit && canCancelPo(po) ? `<button type="button" class="btn red" id="cancelPoBtn">Cancel PO</button>` : ""}
+    ${isEdit && canDeletePo(po) ? `<button type="button" class="btn red" id="deletePoBtn">Delete Draft</button>` : ""}
     ${locked ? "" : `<button class="btn" data-save-mode="draft">Save Draft</button><button class="btn green" data-save-mode="approve">Save & Approve</button>`}
   </div></form>`);
 
@@ -240,6 +247,8 @@ async function openPoModal(po=null){
   }
   if(isEdit && (po.status || "draft")==="draft") $("approvePoBtn").onclick = async()=>approvePo(po.id);
   if(isEdit && (po.status || "")==="partially_received") $("closePoBtn").onclick = async()=>closePo(po.id);
+  if(isEdit && canCancelPo(po)) $("cancelPoBtn").onclick = async()=>cancelPo(po);
+  if(isEdit && canDeletePo(po)) $("deletePoBtn").onclick = async()=>deleteDraftPo(po);
 
   $("poForm").onsubmit = async(e)=>{
     e.preventDefault(); if(locked) return;
@@ -274,6 +283,29 @@ function openReceivingNoteFromPo(note){
 
 async function approvePo(id){ try{const {error}=await state.db.from("purchase_orders").update({status:"approved",approved_at:new Date().toISOString(),approved_by:state.user.id}).eq("id",id); if(error)throw error; toast("Purchase order approved.","ok"); closeModal(); renderPurchaseOrders();}catch(e){toast(e.message,"error");} }
 async function closePo(id){ try{const {error}=await state.db.from("purchase_orders").update({status:"closed",updated_at:new Date().toISOString()}).eq("id",id); if(error)throw error; toast("Purchase order closed.","ok"); closeModal(); renderPurchaseOrders();}catch(e){toast(e.message,"error");} }
+async function cancelPo(po){
+  if(!canCancelPo(po)) return toast("This PO cannot be cancelled because it has receiving activity or is already closed.", "error");
+  if(!confirm(`Cancel ${poNumber(po)}? It will stay in history but cannot be received.`)) return;
+  try{
+    const {error}=await state.db.from("purchase_orders").update({status:"cancelled",updated_at:new Date().toISOString()}).eq("id",po.id);
+    if(error)throw error;
+    toast("Purchase order cancelled.","ok");
+    closeModal();
+    renderPurchaseOrders();
+  }catch(e){toast("PO cancel failed: "+e.message,"error");}
+}
+async function deleteDraftPo(po){
+  if(!canDeletePo(po)) return toast("Only draft POs with no receiving activity can be deleted.", "error");
+  if(!confirm(`Delete draft ${poNumber(po)} permanently?`)) return;
+  try{
+    await deleteRows("purchase_order_lines","purchase_order_id",po.id);
+    const {error}=await state.db.from("purchase_orders").delete().eq("id",po.id);
+    if(error)throw error;
+    toast("Draft purchase order deleted.","ok");
+    closeModal();
+    renderPurchaseOrders();
+  }catch(e){toast("PO delete failed: "+e.message,"error");}
+}
 
 function poText(po, lines){ return [`Purchase Order: ${poNumber(po)}`,`Company: ${companyName()}`,`Branch: ${branchName()}`,branchAddress()?`Address: ${branchAddress()}`:"",`Branch Phone: ${branchPhone() || "-"}`,`PO Contact: ${poPhone()}`,`Supplier: ${supplierName(getSupplier(po.supplier_id))}`,`PO Date: ${po.order_date || (po.created_at || "").slice(0,10)}`,`Delivery: ${po.delivery_asap ? "ASAP" : po.expected_delivery_date || "-"}`,"",...lines.filter(l=>l.item_id).map((l,i)=>`${i+1}. ${itemLabel(getItem(l.item_id))} - ${qty(l.ordered_qty)} ${l.unit || l.order_unit || getItem(l.item_id)?.receiving_unit || ""}`),"",`PO Total: ${money(po.total_amount)}`,`Actual Received Total: ${money(receivedTotalForPo(po.id))}`,po.notes ? `Notes: ${po.notes}` : ""].filter(Boolean).join("\n"); }
 function copyPoText(po, lines){ navigator.clipboard.writeText(poText(po,lines)); toast("PO text copied.","ok"); }

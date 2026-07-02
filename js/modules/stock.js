@@ -16,6 +16,7 @@ const currentQty = itemId => {
   const bal = balances.find(b => b.item_id === itemId);
   return Number(bal?.qty_on_hand ?? bal?.current_qty ?? bal?.quantity ?? 0);
 };
+const hasStockRecord = itemId => balances.some(b => b.item_id === itemId) || movements.some(m => m.item_id === itemId);
 const categoryName = id => state.categories.find(c => c.id === id)?.name || "";
 const supplierName = id => {
   const supplier = state.suppliers.find(s => s.id === id);
@@ -87,10 +88,10 @@ function branchName() {
 }
 
 function renderStockTables() {
-  const q = stockFilters.search.toLowerCase();
+  const terms = normalizeSearch(stockFilters.search).split(" ").filter(Boolean);
   const rows = (state.items || [])
-    .filter(item => item.active !== false)
-    .filter(item => !q || stockSearchText(item).includes(q))
+    .filter(item => item.active !== false || currentQty(item.id) !== 0 || hasStockRecord(item.id))
+    .filter(item => !terms.length || terms.every(term => stockSearchText(item).includes(term)))
     .filter(item => !stockFilters.status || stockStatus(item).key === stockFilters.status)
     .sort((a, b) => itemLabel(a).localeCompare(itemLabel(b)));
 
@@ -150,7 +151,7 @@ function renderStockTables() {
 }
 
 function stockSearchText(item) {
-  return [
+  return normalizeSearch([
     item.name,
     item.name_ar,
     itemType(item),
@@ -159,5 +160,21 @@ function stockSearchText(item) {
     item.stock_unit,
     item.receiving_unit,
     item.cost_unit,
-  ].filter(Boolean).join(" ").toLowerCase();
+    item.purchase_package_type,
+    item.purchase_package_unit,
+    item.brand,
+    item.acceptable_brands,
+    item.sku,
+    item.item_code,
+    JSON.stringify(item),
+  ].filter(Boolean).join(" "));
+}
+
+function normalizeSearch(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .toLowerCase()
+    .trim();
 }
