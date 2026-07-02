@@ -322,7 +322,7 @@ function openApplyTemplateModal() {
         <div class="form-grid">
           <div><label>Template</label><select name="template_id">${templates.filter(t => t.active !== false).map(t => `<option value="${esc(t.id)}">${esc(t.name)}</option>`).join("")}</select></div>
           <div><label>Week Starting</label><input name="week_start" type="date" class="input" value="${esc(weekDays(view.start)[0])}" required></div>
-          <div class="full"><label><input name="replace" type="checkbox" checked> Clear existing planned shifts for this week first</label></div>
+          <div class="full"><label><input name="replace" type="checkbox" checked> Cancel existing planned shifts for this week first</label></div>
         </div>
       </div>
       <div class="modal-foot"><button type="button" class="btn secondary" onclick="closeModal()">Cancel</button><button class="btn">Apply</button></div>
@@ -339,7 +339,7 @@ function openApplyTemplateModal() {
       if (fd.get("replace") === "on") {
         const { error } = await state.db
           .from("shift_schedules")
-          .delete()
+          .update({ status: "cancelled", updated_at: new Date().toISOString() })
           .eq("branch_id", state.currentBranchId)
           .eq("status", "planned")
           .in("shift_date", week);
