@@ -12,6 +12,11 @@ import { renderCounts } from "./modules/counts.js";
 import { renderMenuItems } from "./modules/menuItems.js";
 import { renderWaste } from "./modules/waste.js";
 import { renderSales } from "./modules/sales.js";
+import { renderEmployees } from "./modules/employees.js";
+import { renderShifts } from "./modules/shifts.js";
+import { renderTimeClock } from "./modules/timeClock.js";
+import { renderStaffMeal } from "./modules/staffMeal.js";
+import { renderPayroll } from "./modules/payroll.js";
 
 
 export function renderShell(){
@@ -40,7 +45,7 @@ export function setPage(page){
 }
 
 export async function refreshCurrent(){
-  const titles = { dashboard:"Dashboard", suppliers:"Suppliers", items:"Items", producedItems:"Produced Items", menuItems:"Menu Items", purchase:"Purchase Orders", receiving:"Receiving", stock:"Stock", production:"Production", counts:"Daily Count", waste:"Wastage", sales:"Sales" };
+  const titles = { dashboard:"Dashboard", suppliers:"Suppliers", items:"Items", producedItems:"Produced Items", menuItems:"Menu Items", purchase:"Purchase Orders", receiving:"Receiving", stock:"Stock", production:"Production", counts:"Daily Count", waste:"Wastage", sales:"Sales", employees:"Employees", shifts:"Shift Planner", timeclock:"Time Clock", staffmeal:"Staff Meal", payroll:"Payroll" };
   $("pageTitle").textContent = titles[state.page] || "Mandina";
   if(state.page === "dashboard") return renderDashboard();
   if(state.page === "suppliers") return renderSuppliers();
@@ -54,13 +59,18 @@ export async function refreshCurrent(){
   if(state.page === "counts") return renderCounts();
   if(state.page === "waste") return renderWaste();
   if(state.page === "sales") return renderSales();
+  if(state.page === "employees") return renderEmployees();
+  if(state.page === "shifts") return renderShifts();
+  if(state.page === "timeclock") return renderTimeClock();
+  if(state.page === "staffmeal") return renderStaffMeal();
+  if(state.page === "payroll") return renderPayroll();
 }
 
 export function bindNavigation(){
   document.querySelectorAll("#nav button").forEach(btn=>{
     btn.onclick = ()=>{
       const page = btn.dataset.page;
-      if(btn.classList.contains("soon") && !["receiving", "counts", "waste", "sales"].includes(page)){
+      if(btn.classList.contains("soon") && !["receiving", "counts", "waste", "sales", "timeclock", "staffmeal", "payroll"].includes(page)){
         toast("This module is planned. We will build it in the next phases.");
         return;
       }
