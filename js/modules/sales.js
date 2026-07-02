@@ -25,6 +25,53 @@ const errText = err => {
   }
 };
 
+function dateShift(base, days) {
+  const d = new Date(`${base}T00:00:00`);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function yesterday() {
+  return dateShift(today(), -1);
+}
+
+function normalizeFilters() {
+  if (!filters.from) filters.from = today();
+  if (!filters.to) filters.to = today();
+  if (!isManager()) {
+    const allowed = new Set([today(), yesterday()]);
+    const selected = allowed.has(filters.from) ? filters.from : today();
+    filters.from = selected;
+    filters.to = selected;
+    filters.source = "loyverse";
+  }
+}
+
+function paymentAmount(summary, paymentName) {
+  const target = paymentName.toLowerCase();
+  return String(summary || "").split(",").reduce((sum, part) => {
+    const [name, amount] = part.split(":");
+    return name?.trim().toLowerCase() === target ? sum + Number(amount || 0) : sum;
+  }, 0);
+}
+
+function cashAmount(report) {
+  return paymentAmount(report.payment_summary, "cash");
+}
+
+function visibleAmount(report, reportLines = []) {
+  if (isManager()) {
+    return Number(report.total_sales_amount || reportLines.reduce((s, l) => s + Number(l.net_sales_amount || 0), 0));
+  }
+  return cashAmount(report);
+}
+
+function visiblePaymentSummary(report) {
+  if (isManager()) return report.payment_summary || "";
+  const cash = cashAmount(report);
+  return cash ? `Cash: ${cash.toFixed(2)}` : "Non-cash payment hidden";
+}
+
 async function loadSalesData() {
   await loadItems();
   reports = await selectAll("sales_reports", "*", { eq: { branch_id: state.currentBranchId }, order: "created_at", ascending: false }).catch(() => []);
@@ -52,42 +99,47 @@ async function selectAll(table, columns = "*", options = {}) {
 }
 
 export async function renderSales() {
-  if (!isManager()) return $("content").innerHTML = showError("Staff users cannot access Sales.");
   const content = $("content");
   content.innerHTML = '<div class="card">Loading sales...</div>';
   try {
     await loadSalesData();
+    normalizeFilters();
     content.innerHTML = `
       <div class="card">
         <div class="section-head">
           <h2>Sales</h2>
           <div class="toolbar">
-            <input id="salesFrom" class="input" type="date">
-            <input id="salesTo" class="input" type="date">
+            ${isManager() ? `<input id="salesFrom" class="input" type="date"><input id="salesTo" class="input" type="date">` : `<select id="salesStaffDateFilter"><option value="${today()}">Today</option><option value="${yesterday()}">Yesterday</option></select>`}
             <input id="salesItemFilter" class="input" placeholder="Search item...">
             <select id="salesPaymentFilter"><option value="">All payment</option></select>
-            <select id="salesSourceFilter"><option value="">All source</option><option value="manual">Manual</option><option value="loyverse">Loyverse</option></select>
+            ${isManager() ? `<select id="salesSourceFilter"><option value="">All source</option><option value="manual">Manual</option><option value="loyverse">Loyverse</option></select>` : ""}
             <button class="btn secondary" id="importLoyverseSalesBtn">Import Loyverse Sales</button>
-            <button class="btn" id="newSalesBtn">+ Manual Sales Entry</button>
+            ${isManager() ? `<button class="btn green" id="processFilteredSalesBtn">Process All Shown</button><button class="btn" id="newSalesBtn">+ Manual Sales Entry</button>` : ""}
           </div>
         </div>
         <div class="muted" style="margin-bottom:12px">Sales reports use Menu Item deduction mappings to create SALES_DEDUCTION stock movements when processed.</div>
         <div id="salesTable"></div>
       </div>
     `;
-    $("salesFrom").value = filters.from;
-    $("salesTo").value = filters.to;
+    if (isManager()) {
+      $("salesFrom").value = filters.from;
+      $("salesTo").value = filters.to;
+      $("salesFrom").onchange = e => { filters.from = e.target.value; renderSalesTable(); };
+      $("salesTo").onchange = e => { filters.to = e.target.value; renderSalesTable(); };
+      $("salesSourceFilter").value = filters.source;
+      $("salesSourceFilter").onchange = e => { filters.source = e.target.value; renderSalesTable(); };
+      $("processFilteredSalesBtn").onclick = () => processVisibleSales();
+      $("newSalesBtn").onclick = openSalesModal;
+    } else {
+      $("salesStaffDateFilter").value = filters.from;
+      $("salesStaffDateFilter").onchange = e => { filters.from = e.target.value; filters.to = e.target.value; renderSalesTable(); };
+    }
     $("salesItemFilter").value = filters.item;
     $("salesPaymentFilter").innerHTML = paymentOptions();
     $("salesPaymentFilter").value = filters.payment;
-    $("salesSourceFilter").value = filters.source;
-    $("salesFrom").onchange = e => { filters.from = e.target.value; renderSalesTable(); };
-    $("salesTo").onchange = e => { filters.to = e.target.value; renderSalesTable(); };
     $("salesItemFilter").oninput = e => { filters.item = e.target.value; renderSalesTable(); };
     $("salesPaymentFilter").onchange = e => { filters.payment = e.target.value; renderSalesTable(); };
-    $("salesSourceFilter").onchange = e => { filters.source = e.target.value; renderSalesTable(); };
     $("importLoyverseSalesBtn").onclick = openLoyverseSalesImportModal;
-    $("newSalesBtn").onclick = openSalesModal;
     renderSalesTable();
   } catch (e) {
     content.innerHTML = showError("Could not load Sales. " + errText(e));
@@ -110,9 +162,9 @@ function paymentNames(summary) {
     .filter(Boolean);
 }
 
-function renderSalesTable() {
+function filteredSalesReports() {
   const itemQuery = filters.item.trim().toLowerCase();
-  const filteredReports = reports.filter(r => {
+  return reports.filter(r => {
     const d = (r.report_date || "").slice(0, 10);
     if (filters.from && d < filters.from) return false;
     if (filters.to && d > filters.to) return false;
@@ -124,8 +176,12 @@ function renderSalesTable() {
     }
     return true;
   });
+}
+
+function renderSalesTable() {
+  const filteredReports = filteredSalesReports();
   const allLines = filteredReports.flatMap(r => linesFor(r.id));
-  const totalSales = filteredReports.reduce((s, r) => s + Number(r.total_sales_amount || linesFor(r.id).reduce((x, l) => x + Number(l.net_sales_amount || 0), 0)), 0);
+  const totalSales = filteredReports.reduce((s, r) => s + visibleAmount(r, linesFor(r.id)), 0);
   const totalItems = filteredReports.reduce((s, r) => s + Number(r.total_items_sold || linesFor(r.id).reduce((x, l) => x + Number(l.qty_sold || 0), 0)), 0);
   const byItem = new Map();
   for (const line of allLines) {
@@ -141,26 +197,26 @@ function renderSalesTable() {
     <div class="grid cards" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:14px">
       <div class="card"><div class="stat-title">Reports</div><div><b>${filteredReports.length}</b></div></div>
       <div class="card"><div class="stat-title">Items Sold</div><div><b>${qty(totalItems)}</b></div></div>
-      <div class="card"><div class="stat-title">Sales Amount</div><div><b>${money(totalSales)}</b></div></div>
+      <div class="card"><div class="stat-title">${isManager() ? "Sales Amount" : "Cash Amount"}</div><div><b>${money(totalSales)}</b></div></div>
       <div class="card"><div class="stat-title">Top Item</div><div><b>${esc(topItems[0]?.[0] || "-")}</b></div></div>
     </div>
-    ${topItems.length ? `<div class="card" style="margin-bottom:14px"><div class="stat-title">Top Sold Items</div>${topItems.map(([name, data]) => `<div>${esc(name)}: <b>${qty(data.qty)}</b> / ${money(data.sales)}</div>`).join("")}</div>` : ""}
+    ${topItems.length ? `<div class="card" style="margin-bottom:14px"><div class="stat-title">Top Sold Items</div>${topItems.map(([name, data]) => `<div>${esc(name)}: <b>${qty(data.qty)}</b>${isManager() ? ` / ${money(data.sales)}` : ""}</div>`).join("")}</div>` : ""}
     <table>
-      <thead><tr><th>Report</th><th>Date</th><th>Source</th><th>Lines</th><th>Items Sold</th><th>Sales Amount</th><th>Status</th><th></th></tr></thead>
+      <thead><tr><th>Report</th><th>Date</th><th>Source</th><th>Lines</th><th>Items Sold</th><th>${isManager() ? "Sales Amount" : "Cash Amount"}</th><th>Status</th><th></th></tr></thead>
       <tbody>
         ${filteredReports.map(r => {
           const reportLines = linesFor(r.id);
           return `<tr>
-            <td><b>${esc(reportNo(r))}</b><div class="muted">${esc(r.payment_summary || r.notes || "")}</div></td>
+            <td><b>${esc(reportNo(r))}</b><div class="muted">${esc(visiblePaymentSummary(r))}</div></td>
             <td>${esc((r.report_date || "").slice(0, 10))}</td>
             <td><span class="badge ${r.source === "loyverse" ? "blue" : "gold"}">${esc(r.source || "manual")}</span></td>
             <td>${reportLines.length}</td>
             <td>${qty(r.total_items_sold || reportLines.reduce((s, l) => s + Number(l.qty_sold || 0), 0))}</td>
-            <td>${money(r.total_sales_amount || reportLines.reduce((s, l) => s + Number(l.net_sales_amount || 0), 0))}</td>
+            <td>${money(visibleAmount(r, reportLines))}</td>
             <td><span class="badge ${r.status === "confirmed" ? "green" : "gold"}">${esc(r.status || "draft")}</span></td>
             <td>
               <button class="btn secondary small view-sales" data-id="${esc(r.id)}">View</button>
-              ${r.status === "confirmed" ? "" : `<button class="btn green small process-sales" data-id="${esc(r.id)}">Process</button>`}
+              ${isManager() && r.status !== "confirmed" ? `<button class="btn green small process-sales" data-id="${esc(r.id)}">Process</button>` : ""}
             </td>
           </tr>`;
         }).join("") || '<tr><td colspan="8" class="muted">No sales reports yet.</td></tr>'}
@@ -181,8 +237,9 @@ function openLoyverseSalesImportModal() {
     <form id="loyverseSalesImportForm">
       <div class="modal-body">
         <div class="form-grid">
-          <div><label>From</label><input name="from" type="date" class="input" value="${today()}" required></div>
-          <div><label>To</label><input name="to" type="date" class="input" value="${today()}" required></div>
+          ${isManager()
+            ? `<div><label>From</label><input name="from" type="date" class="input" value="${filters.from || today()}" required></div><div><label>To</label><input name="to" type="date" class="input" value="${filters.to || today()}" required></div>`
+            : `<div class="full"><label>Import Date</label><select name="staff_date"><option value="${today()}" ${filters.from === today() ? "selected" : ""}>Today</option><option value="${yesterday()}" ${filters.from === yesterday() ? "selected" : ""}>Yesterday</option></select></div>`}
           <div class="full"><label>Loyverse Token</label><input name="token" type="password" class="input" required autocomplete="off"></div>
         </div>
         <div class="muted" style="margin-top:10px">
@@ -201,8 +258,9 @@ function openLoyverseSalesImportModal() {
     e.preventDefault();
     const fd = new FormData(e.target);
     const token = fd.get("token");
-    const from = fd.get("from");
-    const to = fd.get("to");
+    const staffDate = fd.get("staff_date");
+    const from = isManager() ? fd.get("from") : staffDate;
+    const to = isManager() ? fd.get("to") : staffDate;
     if (to < from) return toast("To date must be after From date.", "error");
     $("loyverseSalesImportStatus").textContent = "Reading receipts from Loyverse...";
     try {
@@ -242,19 +300,18 @@ function openSalesDetails(report) {
         <div class="full"><label>Notes</label><textarea class="input" rows="2" disabled>${esc(report.notes || "")}</textarea></div>
       </div>
       <table>
-        <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th><th>Mapping</th><th>Note</th></tr></thead>
+        <thead><tr><th>Item</th><th>Qty</th>${isManager() ? "<th>Price</th><th>Total</th>" : ""}<th>Mapping</th><th>Note</th></tr></thead>
         <tbody>
           ${reportLines.map(line => {
             const mi = menuItems.find(m => m.id === line.menu_item_id);
             return `<tr>
               <td>${esc(line.pos_item_name || menuName(mi))}</td>
               <td>${qty(line.qty_sold || 0)}</td>
-              <td>${money(line.unit_price || 0)}</td>
-              <td>${money(line.net_sales_amount || 0)}</td>
+              ${isManager() ? `<td>${money(line.unit_price || 0)}</td><td>${money(line.net_sales_amount || 0)}</td>` : ""}
               <td>${mi ? `<span class="badge green">${esc(menuName(mi))}</span>` : '<span class="badge red">Not mapped</span>'}</td>
               <td>${esc(line.notes || "")}</td>
             </tr>`;
-          }).join("") || '<tr><td colspan="6" class="muted">No lines.</td></tr>'}
+          }).join("") || `<tr><td colspan="${isManager() ? 6 : 4}" class="muted">No lines.</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -359,7 +416,7 @@ function openSalesModal() {
   };
 }
 
-async function processSales(report) {
+async function processSales(report, options = {}) {
   if (!report || report.status === "confirmed") return;
   try {
     const reportLines = linesFor(report.id);
@@ -388,9 +445,31 @@ async function processSales(report) {
       await state.db.from("sales_report_lines").update({ status: "processed" }).eq("id", line.id);
     }
     await updateRow("sales_reports", report.id, { status: "confirmed", confirmed_by: state.user.id, processed_at: new Date().toISOString(), updated_at: new Date().toISOString() });
-    toast("Sales processed and stock deducted.", "ok");
+    if (!options.silent) {
+      toast("Sales processed and stock deducted.", "ok");
+      renderSales();
+    }
+  } catch (err) {
+    if (options.silent) throw err;
+    toast("Sales processing failed: " + errText(err), "error");
+  }
+}
+
+async function processVisibleSales() {
+  const rows = filteredSalesReports().filter(report => report.status !== "confirmed");
+  if (!rows.length) return toast("No draft sales reports to process.", "info");
+  const proceed = confirm(`Process ${rows.length} shown sales reports and deduct stock?`);
+  if (!proceed) return;
+  let processed = 0;
+  try {
+    for (const report of rows) {
+      await processSales(report, { silent: true });
+      processed += 1;
+    }
+    toast(`Processed ${processed} sales reports.`, "ok");
     renderSales();
   } catch (err) {
-    toast("Sales processing failed: " + errText(err), "error");
+    toast(`Processed ${processed} reports, then stopped: ${errText(err)}`, "error");
+    renderSales();
   }
 }
