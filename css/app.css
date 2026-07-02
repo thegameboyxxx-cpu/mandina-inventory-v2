@@ -34,5 +34,5 @@
 .shift-pill.role-driver{background:#eef0ff;border-color:#9fa8e8;color:#2d326f}
 .shift-pill.role-cleaner{background:#eff7f7;border-color:#83bebe;color:#205050}
 .shift-pill.role-manager{background:#f3e9ff;border-color:#b58be2;color:#4a236c}
-.shift-pill.actual{background-image:repeating-linear-gradient(135deg,rgba(255,255,255,.28) 0,rgba(255,255,255,.28) 6px,rgba(0,0,0,.04) 7px,rgba(0,0,0,.04) 12px);cursor:default}
+.shift-pill.actual{background-image:repeating-linear-gradient(135deg,rgba(255,255,255,.28) 0,rgba(255,255,255,.28) 6px,rgba(0,0,0,.04) 7px,rgba(0,0,0,.04) 12px);cursor:pointer}
 .shift-pill.actual .shift-resize{display:none}

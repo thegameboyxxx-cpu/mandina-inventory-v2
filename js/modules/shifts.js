@@ -1,5 +1,5 @@
 import { state, isManager } from "../state.js";
-import { $, esc, money, showError, toast, openModal, closeModal, today, dateKey, dateKeyInZone, businessDayForTimestamp, formatTimeMelbourne } from "../utils.js";
+import { $, esc, money, showError, toast, openModal, closeModal, today, dateKey, dateKeyInZone, businessDayForTimestamp, formatDateTimeMelbourne, formatTimeMelbourne } from "../utils.js";
 import { safeSelect, insertRow, updateRow } from "../services/db.js";
 
 let employees = [];
@@ -84,16 +84,17 @@ function renderShiftPlanner() {
   view.mode = $("shiftMode")?.value || view.mode || "week";
   const days = view.mode === "week" ? weekDays(view.start) : [view.start];
   const rows = plannerRows(days);
-  const plannedHours = rows.reduce((sum, s) => sum + shiftHours(s), 0);
-  const plannedCost = rows.reduce((sum, s) => sum + shiftCost(s), 0);
+  const planned = rowSummary(rows, "planned");
+  const actual = rowSummary(rows, "actual");
   const warnings = buildWarnings(days, rows);
   const range = timeRange(rows);
   $("shiftPlanner").innerHTML = `
-    <div class="grid cards" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:14px">
+    <div class="grid cards planner-summary" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:14px">
       <div class="card"><div class="stat-title">Branch</div><div><b>${esc(branchName(state.currentBranchId))}</b></div></div>
-      <div class="card"><div class="stat-title">Rows</div><div><b>${rows.length}</b></div></div>
-      <div class="card"><div class="stat-title">Hours</div><div><b>${plannedHours.toFixed(2)}</b></div></div>
-      <div class="card"><div class="stat-title">Cost</div><div><b>${money(plannedCost)}</b></div></div>
+      <div class="card"><div class="stat-title">Planned</div><div><b>${planned.count}</b> shifts</div><small class="muted">${planned.hours.toFixed(2)} hours</small></div>
+      <div class="card"><div class="stat-title">Planned Cost</div><div><b>${money(planned.cost)}</b></div></div>
+      <div class="card"><div class="stat-title">Actual</div><div><b>${actual.count}</b> entries</div><small class="muted">${actual.hours.toFixed(2)} hours</small></div>
+      <div class="card"><div class="stat-title">Actual Cost</div><div><b>${money(actual.cost)}</b></div></div>
     </div>
     ${warnings.length ? `<div class="errorbox">${warnings.map(esc).join("<br>")}</div>` : ""}
     <div class="shift-timeline-wrap">
@@ -110,6 +111,9 @@ function renderShiftPlanner() {
       openShiftModal(shifts.find(s => s.id === btn.dataset.id));
     };
     btn.onpointerdown = startShiftDrag;
+  });
+  document.querySelectorAll(".shift-pill.actual").forEach(btn => {
+    btn.onclick = () => openActualShiftModal(timeEntries.find(entry => entry.id === btn.dataset.id));
   });
 }
 
@@ -129,14 +133,15 @@ function renderTimeHeader(range) {
 function renderTimelineDay(day, dayShifts, range) {
   const layout = layoutShifts(dayShifts);
   const rowHeight = Math.max(56, layout.lanes * 46 + 12);
-  const isActual = day < today();
-  const dayCost = dayShifts.reduce((sum, s) => sum + shiftCost(s), 0);
+  const planned = rowSummary(dayShifts, "planned");
+  const actual = rowSummary(dayShifts, "actual");
   return `
     <section class="shift-time-row" style="--time-width:${range.width}px;--row-height:${rowHeight}px">
       <div class="shift-day-label">
         <b>${esc(dayLabel(day))}</b>
         <span>${esc(day)}</span>
-        <small>${isActual ? "Actual" : "Planned"} - ${dayShifts.length} shifts / ${money(dayCost)}</small>
+        <small>Planned: ${planned.count} shifts / ${planned.hours.toFixed(2)}h / ${money(planned.cost)}</small>
+        <small>Actual: ${actual.count} entries / ${actual.hours.toFixed(2)}h / ${money(actual.cost)}</small>
       </div>
       <div class="shift-time-lane">
         ${layout.items.map(item => {
@@ -157,6 +162,15 @@ function renderTimelineDay(day, dayShifts, range) {
       </div>
     </section>
   `;
+}
+
+function rowSummary(rows, source) {
+  const scoped = rows.filter(row => row.source === source);
+  return {
+    count: scoped.length,
+    hours: scoped.reduce((sum, row) => sum + shiftHours(row), 0),
+    cost: scoped.reduce((sum, row) => sum + shiftCost(row), 0),
+  };
 }
 
 function plannerRows(days) {
@@ -272,6 +286,31 @@ function openShiftModal(shift = null) {
       toast("Shift save failed: " + err.message, "error");
     }
   };
+}
+
+function openActualShiftModal(entry) {
+  if (!entry) return;
+  const e = employee(entry.employee_id);
+  const shift = shifts.find(s => s.id === entry.shift_id);
+  const paidMinutes = Number(entry.paid_minutes || 0);
+  openModal(`
+    <div class="modal-head"><h3>Actual Shift</h3><button class="btn secondary small" onclick="closeModal()">x</button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div><label>Employee</label><div>${esc(employeeLabel(e))}</div></div>
+        <div><label>Status</label><div>${esc(entry.status || "-")}</div></div>
+        <div><label>Business Day</label><div>${esc(entryBusinessDay(entry))}</div></div>
+        <div><label>Paid Time</label><div>${paidMinutes ? `${paidMinutes} minutes (${(paidMinutes / 60).toFixed(2)}h)` : "-"}</div></div>
+        <div><label>Clock In</label><div>${esc(formatDateTimeMelbourne(entry.clock_in_at || entry.created_at))}</div></div>
+        <div><label>Clock Out</label><div>${entry.clock_out_at ? esc(formatDateTimeMelbourne(entry.clock_out_at)) : "-"}</div></div>
+        <div><label>Planned Shift</label><div>${shift ? `${esc(shift.shift_date)} ${esc(timeShort(shift.start_time))}-${esc(timeShort(shift.end_time))}` : "-"}</div></div>
+        <div><label>Role</label><div>${esc(roleLabel(shift?.role || e?.operational_role))}</div></div>
+        <div class="full"><label>Clock In Reason</label><div>${esc(entry.clock_in_reason || "-")}</div></div>
+        <div class="full"><label>Clock Out Reason</label><div>${esc(entry.clock_out_reason || "-")}</div></div>
+      </div>
+    </div>
+    <div class="modal-foot"><button type="button" class="btn secondary" onclick="closeModal()">Close</button></div>
+  `);
 }
 
 function openSaveTemplateModal() {
