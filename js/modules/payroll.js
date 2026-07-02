@@ -88,7 +88,7 @@ function renderPayrollView() {
         <td>${money(r.due)}</td>
         <td>
           <button class="btn secondary small payroll-view" data-id="${esc(r.employee.id)}">View</button>
-          <button class="btn green small payroll-pay" data-id="${esc(r.employee.id)}" ${r.due <= 0 ? "disabled" : ""}>Pay</button>
+          ${r.due <= 0 ? '<span class="badge green">Paid</span>' : `<button class="btn green small payroll-pay" data-id="${esc(r.employee.id)}">Pay</button>`}
         </td>
       </tr>`).join("") || '<tr><td colspan="9" class="muted">No clocked-out time entries in this period.</td></tr>'}</tbody>
     </table>
