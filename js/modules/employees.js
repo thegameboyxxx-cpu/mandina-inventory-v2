@@ -7,6 +7,24 @@ let filters = { search: "", status: "active" };
 
 const branchName = id => (state.branches || []).find(b => b.id === id)?.name || id || "-";
 const employeeLabel = e => isManager() ? `${e.full_name} (#${e.employee_number})` : `Employee #${e.employee_number}`;
+const roleOptions = selected => [
+  ["front_staff", "Front Staff"],
+  ["kitchen", "Kitchen"],
+  ["back_kitchen", "Back Kitchen"],
+  ["cashier", "Cashier"],
+  ["driver", "Driver"],
+  ["cleaner", "Cleaner"],
+  ["manager", "Manager"],
+].map(([value, label]) => `<option value="${esc(value)}" ${value === selected ? "selected" : ""}>${esc(label)}</option>`).join("");
+const roleLabel = value => ({
+  front_staff: "Front Staff",
+  kitchen: "Kitchen",
+  back_kitchen: "Back Kitchen",
+  cashier: "Cashier",
+  driver: "Driver",
+  cleaner: "Cleaner",
+  manager: "Manager",
+})[value] || value || "-";
 
 async function loadEmployees() {
   employees = await safeSelect("employees", "*", { order: "employee_number" }).catch(() => []);
@@ -63,16 +81,17 @@ function renderEmployeesTable() {
       <div class="card"><div class="stat-title">Branches</div><div><b>${new Set(employees.map(e => e.branch_id)).size}</b></div></div>
     </div>
     <table>
-      <thead><tr><th>Employee</th><th>Branch</th><th>Employment</th><th>Rate</th><th>Status</th><th></th></tr></thead>
+      <thead><tr><th>Employee</th><th>Branch</th><th>Role</th><th>Employment</th><th>Rate</th><th>Status</th><th></th></tr></thead>
       <tbody>
         ${rows.map(e => `<tr>
           <td><b>${esc(employeeLabel(e))}</b><div class="muted">${esc(e.email || e.phone || "")}</div></td>
           <td>${esc(branchName(e.branch_id))}</td>
+          <td>${esc(roleLabel(e.operational_role))}</td>
           <td>${esc(e.employment_type || "")}</td>
           <td>${money(e.hourly_rate)}</td>
           <td><span class="badge ${e.active === false ? "red" : "green"}">${e.active === false ? "Inactive" : "Active"}</span></td>
           <td><button class="btn secondary small edit-employee" data-id="${esc(e.id)}">Edit</button></td>
-        </tr>`).join("") || '<tr><td colspan="6" class="muted">No employees yet.</td></tr>'}
+        </tr>`).join("") || '<tr><td colspan="7" class="muted">No employees yet.</td></tr>'}
       </tbody>
     </table>
   `;
@@ -99,6 +118,7 @@ function openEmployeeModal(employee = null) {
           <div><label>Full Name</label><input name="full_name" class="input" value="${esc(employee?.full_name || "")}" required></div>
           <div><label>Branch</label><select name="branch_id" required>${branchOptions(employee?.branch_id || state.currentBranchId)}</select></div>
           <div><label>Hourly Rate</label><input name="hourly_rate" type="number" step="0.01" class="input" value="${esc(employee?.hourly_rate ?? 0)}"></div>
+          <div><label>Operational Role</label><select name="operational_role">${roleOptions(employee?.operational_role || "front_staff")}</select></div>
           <div><label>Employment Type</label><select name="employment_type"><option ${employee?.employment_type === "casual" ? "selected" : ""}>casual</option><option ${employee?.employment_type === "part_time" ? "selected" : ""}>part_time</option><option ${employee?.employment_type === "full_time" ? "selected" : ""}>full_time</option></select></div>
           <div><label>Status</label><select name="active"><option value="true" ${employee?.active !== false ? "selected" : ""}>Active</option><option value="false" ${employee?.active === false ? "selected" : ""}>Inactive</option></select></div>
           <div><label>Phone</label><input name="phone" class="input" value="${esc(employee?.phone || "")}"></div>
@@ -117,6 +137,7 @@ function openEmployeeModal(employee = null) {
       full_name: String(fd.get("full_name") || "").trim(),
       branch_id: fd.get("branch_id"),
       hourly_rate: Number(fd.get("hourly_rate") || 0),
+      operational_role: fd.get("operational_role") || "front_staff",
       employment_type: fd.get("employment_type"),
       active: fd.get("active") === "true",
       phone: fd.get("phone") || null,
