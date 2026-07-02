@@ -152,10 +152,13 @@ function baseRow(emp) {
 
 function mealDeductions(employeeId) {
   return staffMeals
-    .filter(m => m.employee_id === employeeId && m.status === "approved" && m.meal_date >= filters.from && m.meal_date <= filters.to)
+    .filter(m => {
+      const mealDate = dateOnly(m.meal_date);
+      return m.employee_id === employeeId && m.status === "approved" && mealDate >= filters.from && mealDate <= filters.to;
+    })
     .map(m => ({
       id: m.id,
-      date: m.meal_date,
+      date: dateOnly(m.meal_date),
       label: mealNo(m),
       reason: mealSummary(m),
       amount: Number(m.employee_charge ?? m.total_estimated_cost ?? 0),
@@ -168,8 +171,8 @@ function periodPayments(employeeId) {
   return payments.filter(p =>
     p.employee_id === employeeId &&
     p.status !== "voided" &&
-    p.period_start === filters.from &&
-    p.period_end === filters.to
+    dateOnly(p.period_start) === filters.from &&
+    dateOnly(p.period_end) === filters.to
   );
 }
 
@@ -351,4 +354,8 @@ function exactPaidMinutes(entry) {
 function localDateTime(value) {
   if (!value) return "-";
   return new Date(value).toLocaleString("en-AU", { dateStyle: "short", timeStyle: "short" });
+}
+
+function dateOnly(value) {
+  return String(value || "").slice(0, 10);
 }
