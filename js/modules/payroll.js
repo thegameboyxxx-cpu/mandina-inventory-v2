@@ -171,8 +171,7 @@ function periodPayments(employeeId) {
   return payments.filter(p =>
     p.employee_id === employeeId &&
     p.status !== "voided" &&
-    dateOnly(p.period_start) === filters.from &&
-    dateOnly(p.period_end) === filters.to
+    paymentOverlapsFilter(p)
   );
 }
 
@@ -234,8 +233,8 @@ function openPayrollDetails(row) {
         ${row.deductionItems.map(d => `<tr><td>${esc(d.date)}</td><td>${esc(d.label)}</td><td>${esc(d.reason)}</td><td>${money(d.amount)}</td></tr>`).join("") || '<tr><td colspan="4" class="muted">No deductions in this period.</td></tr>'}
       </tbody></table>
       <h3 style="margin:18px 0 10px">Payments</h3>
-      <table><thead><tr><th>Date</th><th>Method</th><th>Reference</th><th>Amount</th><th>Notes</th></tr></thead><tbody>
-        ${row.paymentItems.map(p => `<tr><td>${esc(localDateTime(p.paid_at))}</td><td>${esc(p.payment_method)}</td><td>${esc(p.payment_reference || "-")}</td><td>${money(p.payment_amount)}</td><td>${esc(p.notes || "")}</td></tr>`).join("") || '<tr><td colspan="5" class="muted">No payments recorded for this period.</td></tr>'}
+      <table><thead><tr><th>Date</th><th>Covers</th><th>Method</th><th>Reference</th><th>Amount</th><th>Notes</th></tr></thead><tbody>
+        ${row.paymentItems.map(p => `<tr><td>${esc(localDateTime(p.paid_at))}</td><td>${esc(dateOnly(p.period_start))} to ${esc(dateOnly(p.period_end))}</td><td>${esc(p.payment_method)}</td><td>${esc(p.payment_reference || "-")}</td><td>${money(p.payment_amount)}</td><td>${esc(p.notes || "")}</td></tr>`).join("") || '<tr><td colspan="6" class="muted">No payments recorded for this period.</td></tr>'}
       </tbody></table>
     </div>
     <div class="modal-foot"><button class="btn secondary" onclick="closeModal()">Close</button></div>
@@ -358,4 +357,10 @@ function localDateTime(value) {
 
 function dateOnly(value) {
   return String(value || "").slice(0, 10);
+}
+
+function paymentOverlapsFilter(payment) {
+  const start = dateOnly(payment.period_start);
+  const end = dateOnly(payment.period_end);
+  return start <= filters.to && end >= filters.from;
 }
