@@ -7,7 +7,7 @@ const corsHeaders = {
 };
 
 const LOYVERSE_URL = "https://api.loyverse.com/v1.0";
-const FUNCTION_VERSION = "2026-07-02.5";
+const FUNCTION_VERSION = "2026-07-02.6";
 
 function json(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify({ function_version: FUNCTION_VERSION, ...body }), {
@@ -103,6 +103,24 @@ function chunks<T>(rows: T[], size: number) {
   return result;
 }
 
+function secretNameForBranch(branchId: string) {
+  return `LOYVERSE_TOKEN_${branchId.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`;
+}
+
+function tokenForBranch(branchId: string) {
+  return Deno.env.get(secretNameForBranch(branchId)) || "";
+}
+
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function dateShift(base: string, days: number) {
+  const d = new Date(`${base}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 serve(async req => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -126,13 +144,14 @@ serve(async req => {
       .eq("id", userData.user.id)
       .maybeSingle();
     if (profileError) throw profileError;
-    if ((profile?.role || "").toLowerCase() !== "manager") return json({ error: "Manager access required." }, 403);
-
     const body = await req.json();
-    const token = String(body.token || "");
-    if (!token) return json({ error: "Loyverse token is required." }, 400);
+    const role = String(profile?.role || "staff").toLowerCase();
+    const isManager = role === "manager";
 
     if (body.action === "sync-menu-items") {
+      if (!isManager) return json({ error: "Manager access required." }, 403);
+      const token = String(body.token || "");
+      if (!token) return json({ error: "Loyverse token is required." }, 400);
       const [items, categories] = await Promise.all([
         loyverseGetAll(token, "items?limit=250", "items"),
         loyverseGetAll(token, "categories?limit=250", "categories"),
@@ -178,6 +197,12 @@ serve(async req => {
       const to = String(body.to || "");
       const branchId = String(body.branch_id || "");
       if (!from || !to || !branchId) return json({ error: "from, to, and branch_id are required." }, 400);
+      if (!isManager) {
+        const allowed = new Set([todayIso(), dateShift(todayIso(), -1)]);
+        if (from !== to || !allowed.has(from)) return json({ error: "Staff can only import today or yesterday." }, 403);
+      }
+      const token = String(body.token || "") || tokenForBranch(branchId);
+      if (!token) return json({ error: `Loyverse token is required. Add Edge Function secret ${secretNameForBranch(branchId)} or provide a manager override token.` }, 400);
 
       const path = `receipts?limit=250&created_at_min=${encodeURIComponent(dateStartIso(from))}&created_at_max=${encodeURIComponent(dateEndIso(to))}`;
       const receipts = (await loyverseGetAll(token, path, "receipts"))

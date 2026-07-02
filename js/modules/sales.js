@@ -8,11 +8,14 @@ let reports = [];
 let lines = [];
 let menuItems = [];
 let components = [];
+let cashCounts = [];
+let profiles = [];
 let filters = { from: "", to: "", source: "", item: "", payment: "" };
 
 const menuName = m => m ? `${m.name}${m.name_ar ? " / " + m.name_ar : ""}` : "Menu Item";
 const item = id => (state.items || []).find(i => i.id === id);
 const itemLabel = i => i ? `${i.name}${i.name_ar ? " / " + i.name_ar : ""}` : "Item";
+const profileName = id => profiles.find(p => p.id === id)?.full_name || (id ? String(id).slice(0, 8) : "-");
 const reportNo = r => r?.loyverse_receipt_number || `SR-${String(r?.id || "").slice(0, 8)}`;
 const errText = err => {
   const value = err?.message ?? err;
@@ -59,6 +62,23 @@ function cashAmount(report) {
   return paymentAmount(report.payment_summary, "cash");
 }
 
+function expectedCashForDate(date) {
+  return reports
+    .filter(r => (r.report_date || "").slice(0, 10) === date && (r.source || "manual") === "loyverse")
+    .reduce((sum, r) => sum + cashAmount(r), 0);
+}
+
+function cashCountForDate(date) {
+  return cashCounts.find(c => (c.count_date || "").slice(0, 10) === date);
+}
+
+function cashStatus(count) {
+  if (!count) return '<span class="badge gold">Not counted</span>';
+  const diff = Number(count.difference ?? (Number(count.actual_cash || 0) - Number(count.expected_cash || 0)));
+  if (diff === 0) return '<span class="badge green">Balanced</span>';
+  return `<span class="badge ${diff > 0 ? "blue" : "red"}">${diff > 0 ? "Over" : "Short"}</span>`;
+}
+
 function visibleAmount(report, reportLines = []) {
   if (isManager()) {
     return Number(report.total_sales_amount || reportLines.reduce((s, l) => s + Number(l.net_sales_amount || 0), 0));
@@ -79,6 +99,8 @@ async function loadSalesData() {
   lines = (await selectAll("sales_report_lines", "*").catch(() => [])).filter(line => reportIds.has(line.report_id));
   menuItems = await safeSelect("menu_items", "*", { order: "name" }).catch(() => []);
   components = await safeSelect("menu_item_components", "*", { order: "sort_order" }).catch(() => []);
+  cashCounts = await safeSelect("cash_register_counts", "*", { eq: { branch_id: state.currentBranchId }, order: "count_date", ascending: false }).catch(() => []);
+  profiles = isManager() ? await safeSelect("profiles", "*").catch(() => []) : [];
 }
 
 async function selectAll(table, columns = "*", options = {}) {
@@ -114,6 +136,7 @@ export async function renderSales() {
             <select id="salesPaymentFilter"><option value="">All payment</option></select>
             ${isManager() ? `<select id="salesSourceFilter"><option value="">All source</option><option value="manual">Manual</option><option value="loyverse">Loyverse</option></select>` : ""}
             <button class="btn secondary" id="importLoyverseSalesBtn">Import Loyverse Sales</button>
+            <button class="btn gold" id="cashCountBtn">Cash Count</button>
             ${isManager() ? `<button class="btn green" id="processFilteredSalesBtn">Process All Shown</button><button class="btn" id="newSalesBtn">+ Manual Sales Entry</button>` : ""}
           </div>
         </div>
@@ -140,6 +163,7 @@ export async function renderSales() {
     $("salesItemFilter").oninput = e => { filters.item = e.target.value; renderSalesTable(); };
     $("salesPaymentFilter").onchange = e => { filters.payment = e.target.value; renderSalesTable(); };
     $("importLoyverseSalesBtn").onclick = openLoyverseSalesImportModal;
+    $("cashCountBtn").onclick = openCashCountModal;
     renderSalesTable();
   } catch (e) {
     content.innerHTML = showError("Could not load Sales. " + errText(e));
@@ -183,6 +207,8 @@ function renderSalesTable() {
   const allLines = filteredReports.flatMap(r => linesFor(r.id));
   const totalSales = filteredReports.reduce((s, r) => s + visibleAmount(r, linesFor(r.id)), 0);
   const totalItems = filteredReports.reduce((s, r) => s + Number(r.total_items_sold || linesFor(r.id).reduce((x, l) => x + Number(l.qty_sold || 0), 0)), 0);
+  const selectedCashDate = filters.from === filters.to ? filters.from : today();
+  const currentCashCount = cashCountForDate(selectedCashDate);
   const byItem = new Map();
   for (const line of allLines) {
     const key = line.pos_item_name || menuName(menuItems.find(m => m.id === line.menu_item_id));
@@ -198,7 +224,7 @@ function renderSalesTable() {
       <div class="card"><div class="stat-title">Reports</div><div><b>${filteredReports.length}</b></div></div>
       <div class="card"><div class="stat-title">Items Sold</div><div><b>${qty(totalItems)}</b></div></div>
       <div class="card"><div class="stat-title">${isManager() ? "Sales Amount" : "Cash Amount"}</div><div><b>${money(totalSales)}</b></div></div>
-      <div class="card"><div class="stat-title">Top Item</div><div><b>${esc(topItems[0]?.[0] || "-")}</b></div></div>
+      <div class="card"><div class="stat-title">Cash Count</div><div><b>${cashStatus(currentCashCount)}</b></div><div class="muted">${esc(selectedCashDate)}</div></div>
     </div>
     ${topItems.length ? `<div class="card" style="margin-bottom:14px"><div class="stat-title">Top Sold Items</div>${topItems.map(([name, data]) => `<div>${esc(name)}: <b>${qty(data.qty)}</b>${isManager() ? ` / ${money(data.sales)}` : ""}</div>`).join("")}</div>` : ""}
     <table>
@@ -231,6 +257,113 @@ function componentsFor(menuItemId) {
   return components.filter(c => c.menu_item_id === menuItemId);
 }
 
+function openCashCountModal() {
+  const defaultDate = filters.from && filters.from === filters.to ? filters.from : today();
+  const allowedDateOptions = `<option value="${today()}" ${defaultDate === today() ? "selected" : ""}>Today</option><option value="${yesterday()}" ${defaultDate === yesterday() ? "selected" : ""}>Yesterday</option>`;
+  const existing = cashCountForDate(defaultDate);
+  openModal(`
+    <div class="modal-head"><h3>Cash Register Count</h3><button class="btn secondary small" onclick="closeModal()">x</button></div>
+    <form id="cashCountForm">
+      <div class="modal-body">
+        <div class="form-grid">
+          <div>
+            <label>Count Date</label>
+            ${isManager() ? `<input name="count_date" id="cashCountDate" type="date" class="input" value="${esc(defaultDate)}" required>` : `<select name="count_date" id="cashCountDate">${allowedDateOptions}</select>`}
+          </div>
+          <div><label>Expected Cash From Loyverse</label><input id="expectedCash" class="input" disabled></div>
+          <div><label>Actual Cash In Register</label><input name="actual_cash" id="actualCash" type="number" step="0.01" class="input" value="${esc(existing?.actual_cash ?? "")}" required></div>
+          <div><label>Difference</label><input id="cashDifference" class="input" disabled></div>
+          <div class="full"><label>Reason for Difference</label><textarea name="reason" id="cashReason" class="input" rows="2" placeholder="Required if cash is short or over">${esc(existing?.reason || "")}</textarea></div>
+          <div class="full"><label>Notes</label><textarea name="notes" class="input" rows="2">${esc(existing?.notes || "")}</textarea></div>
+        </div>
+        <div class="muted" style="margin-top:12px">Expected cash is calculated from imported Loyverse receipts for the selected branch and date.</div>
+        ${isManager() ? renderCashCountsList() : ""}
+      </div>
+      <div class="modal-foot"><button type="button" class="btn secondary" onclick="closeModal()">Cancel</button><button class="btn">Save Count</button></div>
+    </form>
+  `);
+
+  function syncCashFields() {
+    const countDate = $("cashCountDate").value;
+    const count = cashCountForDate(countDate);
+    const expected = expectedCashForDate(countDate);
+    if (count && document.activeElement !== $("actualCash") && document.activeElement !== $("cashReason")) {
+      $("actualCash").value = count.actual_cash ?? "";
+      $("cashReason").value = count.reason || "";
+    } else if (!count && document.activeElement === $("cashCountDate")) {
+      $("actualCash").value = "";
+      $("cashReason").value = "";
+    }
+    $("expectedCash").value = money(expected);
+    const actual = Number($("actualCash").value || 0);
+    const diff = actual - expected;
+    $("cashDifference").value = `${diff >= 0 ? "+" : ""}${money(diff)}`;
+  }
+  $("cashCountDate").onchange = syncCashFields;
+  $("actualCash").oninput = syncCashFields;
+  syncCashFields();
+
+  $("cashCountForm").onsubmit = async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const countDate = String(fd.get("count_date"));
+    if (!isManager() && ![today(), yesterday()].includes(countDate)) return toast("Staff can only count today or yesterday.", "error");
+    const expected = Number(expectedCashForDate(countDate).toFixed(2));
+    const actual = Number(Number(fd.get("actual_cash") || 0).toFixed(2));
+    const difference = Number((actual - expected).toFixed(2));
+    const reason = String(fd.get("reason") || "").trim();
+    if (difference !== 0 && !reason) return toast("Reason is required when cash does not match.", "error");
+    try {
+      const payload = {
+        branch_id: state.currentBranchId,
+        count_date: countDate,
+        expected_cash: expected,
+        actual_cash: actual,
+        reason: reason || null,
+        notes: fd.get("notes") || null,
+        status: "submitted",
+        submitted_by: state.user.id,
+        submitted_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      const { error } = await state.db
+        .from("cash_register_counts")
+        .upsert(payload, { onConflict: "branch_id,count_date" });
+      if (error) throw error;
+      toast(difference === 0 ? "Cash count saved and balanced." : `Cash count saved. Difference: ${money(difference)}.`, difference === 0 ? "ok" : "info");
+      closeModal();
+      renderSales();
+    } catch (err) {
+      toast("Cash count save failed: " + errText(err), "error");
+    }
+  };
+}
+
+function renderCashCountsList() {
+  const rows = cashCounts.slice(0, 8);
+  return `
+    <div style="margin-top:18px">
+      <h3 style="margin:0 0 10px">Recent Cash Counts</h3>
+      <table>
+        <thead><tr><th>Date</th><th>Expected</th><th>Actual</th><th>Difference</th><th>Status</th><th>Submitted By</th></tr></thead>
+        <tbody>
+          ${rows.map(c => {
+            const diff = Number(c.difference ?? (Number(c.actual_cash || 0) - Number(c.expected_cash || 0)));
+            return `<tr>
+              <td>${esc((c.count_date || "").slice(0, 10))}</td>
+              <td>${money(c.expected_cash)}</td>
+              <td>${money(c.actual_cash)}</td>
+              <td>${money(diff)}</td>
+              <td>${cashStatus(c)}</td>
+              <td>${esc(profileName(c.submitted_by))}</td>
+            </tr>`;
+          }).join("") || '<tr><td colspan="6" class="muted">No cash counts yet.</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
 function openLoyverseSalesImportModal() {
   openModal(`
     <div class="modal-head"><h3>Import Loyverse Sales</h3><button class="btn secondary small" onclick="closeModal()">x</button></div>
@@ -240,7 +373,7 @@ function openLoyverseSalesImportModal() {
           ${isManager()
             ? `<div><label>From</label><input name="from" type="date" class="input" value="${filters.from || today()}" required></div><div><label>To</label><input name="to" type="date" class="input" value="${filters.to || today()}" required></div>`
             : `<div class="full"><label>Import Date</label><select name="staff_date"><option value="${today()}" ${filters.from === today() ? "selected" : ""}>Today</option><option value="${yesterday()}" ${filters.from === yesterday() ? "selected" : ""}>Yesterday</option></select></div>`}
-          <div class="full"><label>Loyverse Token</label><input name="token" type="password" class="input" required autocomplete="off"></div>
+          ${isManager() ? `<div class="full"><label>Loyverse Token Override</label><input name="token" type="password" class="input" autocomplete="off"><div class="muted">Optional. Leave blank to use the token saved for this branch.</div></div>` : ""}
         </div>
         <div class="muted" style="margin-top:10px">
           Receipts import as draft reports. Processing is separate so stock is deducted only after mappings are checked.
@@ -257,7 +390,7 @@ function openLoyverseSalesImportModal() {
   $("loyverseSalesImportForm").onsubmit = async e => {
     e.preventDefault();
     const fd = new FormData(e.target);
-    const token = fd.get("token");
+    const token = fd.get("token") || "";
     const staffDate = fd.get("staff_date");
     const from = isManager() ? fd.get("from") : staffDate;
     const to = isManager() ? fd.get("to") : staffDate;

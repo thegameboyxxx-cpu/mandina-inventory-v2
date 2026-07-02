@@ -12,6 +12,7 @@ const item = id => (state.items || []).find(i => i.id === id);
 const itemLabel = item => item ? `${item.name}${item.name_ar ? " / " + item.name_ar : ""}` : "Item";
 const profileName = id => profiles.find(p => p.id === id)?.full_name || (id ? String(id).slice(0, 8) : "-");
 const wasteNo = w => w?.waste_number || `WE-${String(w?.id || "").slice(0, 8)}`;
+const WASTE_PHOTO_BUCKET = "waste-photos";
 const currentQty = itemId => {
   const bal = balances.find(b => b.item_id === itemId);
   return Number(bal?.qty_on_hand ?? bal?.current_qty ?? bal?.quantity ?? 0);
@@ -111,7 +112,7 @@ function openWasteModal() {
           <div><label>Unit</label><input name="unit" id="wasteUnit" class="input" required readonly></div>
           <div><label>Reason</label><select name="reason" required>${reasons.map(r => `<option value="${esc(r)}">${esc(r)}</option>`).join("")}</select></div>
           <div><label>Estimated Cost</label><input name="estimated_cost" type="number" step="0.01" class="input" value="0"></div>
-          <div class="full"><label>Photo</label><input name="photo" type="file" accept="image/*" class="input"><div class="muted">Optional. A small photo is saved with the waste entry.</div></div>
+          <div class="full"><label>Photo</label><input name="photo" type="file" accept="image/*" class="input"><div class="muted">Optional. The photo is saved in Supabase Storage and only the file path is kept on the waste entry.</div></div>
           <div class="full"><label>Notes</label><textarea name="notes" class="input" rows="2"></textarea></div>
         </div>
       </div>
@@ -132,7 +133,7 @@ function openWasteModal() {
     if (fd.get("reason") === "Other" && !String(fd.get("notes") || "").trim()) return toast("Notes are required when reason is Other.", "error");
     try {
       const photo = fd.get("photo");
-      const photoUrl = photo && photo.size ? await fileToDataUrl(photo) : null;
+      const photoUrl = photo && photo.size ? await uploadWastePhoto(photo, fd.get("waste_date")) : null;
       const entry = await insertRow("waste_entries", {
         waste_number: `WE-${Date.now().toString().slice(-8)}`,
         branch_id: state.currentBranchId,
@@ -167,6 +168,40 @@ function fileToDataUrl(file) {
   });
 }
 
+async function uploadWastePhoto(file, wasteDate) {
+  const blob = await imageToJpegBlob(file);
+  const safeDate = String(wasteDate || today()).replace(/[^\d-]/g, "");
+  const path = `${state.currentBranchId}/${safeDate}/${state.user.id}-${Date.now()}-${Math.random().toString(16).slice(2)}.jpg`;
+  const { error } = await state.db.storage
+    .from(WASTE_PHOTO_BUCKET)
+    .upload(path, blob, { contentType: "image/jpeg", upsert: false });
+  if (error) throw error;
+  return path;
+}
+
+async function imageToJpegBlob(file) {
+  const dataUrl = await fileToDataUrl(file);
+  const img = await new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = reject;
+    image.src = dataUrl;
+  });
+  const maxSide = 1600;
+  const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(img.width * scale));
+  canvas.height = Math.max(1, Math.round(img.height * scale));
+  canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+  return await new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", 0.82));
+}
+
+function photoSrc(photoUrl) {
+  if (!photoUrl) return "";
+  if (photoUrl.startsWith("data:") || photoUrl.startsWith("http")) return photoUrl;
+  return state.db.storage.from(WASTE_PHOTO_BUCKET).getPublicUrl(photoUrl).data.publicUrl;
+}
+
 function openWasteDetails(entry) {
   if (!entry) return;
   const it = item(entry.item_id);
@@ -184,7 +219,7 @@ function openWasteDetails(entry) {
         <div><label>Estimated Cost</label><input class="input" value="${money(entry.estimated_cost || 0)}" disabled></div>
         ${isManager() ? `<div><label>Recorded By</label><input class="input" value="${esc(profileName(entry.created_by))}" disabled></div>` : ""}
         <div class="full"><label>Notes</label><textarea class="input" rows="4" disabled>${esc(entry.notes || "")}</textarea></div>
-        <div class="full"><label>Photo</label>${entry.photo_url ? `<img src="${esc(entry.photo_url)}" alt="Waste photo" style="max-width:100%;border-radius:12px;border:1px solid var(--line)">` : `<div class="muted">No photo attached.</div>`}</div>
+        <div class="full"><label>Photo</label>${entry.photo_url ? `<img src="${esc(photoSrc(entry.photo_url))}" alt="Waste photo" style="max-width:100%;border-radius:12px;border:1px solid var(--line)">` : `<div class="muted">No photo attached.</div>`}</div>
       </div>
     </div>
     <div class="modal-foot"><button class="btn secondary" onclick="closeModal()">Close</button></div>
