@@ -1,5 +1,5 @@
 import { state, isManager } from "../state.js";
-import { $, esc, money, showError, toast, openModal, closeModal, today } from "../utils.js";
+import { $, esc, money, showError, toast, openModal, closeModal, today, dateKey } from "../utils.js";
 import { safeSelect, insertRow, updateRow } from "../services/db.js";
 
 let employees = [];
@@ -466,7 +466,7 @@ function weekDays(date) {
   return Array.from({ length: 7 }, (_, i) => {
     const x = new Date(d);
     x.setDate(d.getDate() + i);
-    return x.toISOString().slice(0, 10);
+    return dateKey(x);
   });
 }
 
@@ -478,7 +478,7 @@ function weekdayNumber(date) {
 function dateShift(date, days) {
   const d = new Date(`${date}T00:00:00`);
   d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  return dateKey(d);
 }
 
 function dayLabel(date) {

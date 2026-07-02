@@ -1,5 +1,5 @@
 import { state, isManager } from "../state.js";
-import { $, esc, money, showError, toast, today } from "../utils.js";
+import { $, esc, money, showError, toast, today, dateKey } from "../utils.js";
 import { safeSelect, insertRow } from "../services/db.js";
 
 let employees = [];
@@ -133,7 +133,7 @@ function weekStart(date) {
   const d = new Date(`${date}T00:00:00`);
   const offset = (d.getDay() + 6) % 7;
   d.setDate(d.getDate() - offset);
-  return d.toISOString().slice(0, 10);
+  return dateKey(d);
 }
 
 function exactPaidMinutes(entry) {

@@ -1,5 +1,5 @@
 import { state, isManager } from "../state.js";
-import { $, esc, money, qty, showError, toast, openModal, closeModal, today } from "../utils.js";
+import { $, esc, money, qty, showError, toast, openModal, closeModal, today, dateKey } from "../utils.js";
 import { safeSelect, insertRow, updateRow, deleteRows } from "../services/db.js";
 import { loyverseSync } from "../services/loyverse.js";
 import { loadItems } from "./items.js";
@@ -31,7 +31,7 @@ const errText = err => {
 function dateShift(base, days) {
   const d = new Date(`${base}T00:00:00`);
   d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  return dateKey(d);
 }
 
 function yesterday() {

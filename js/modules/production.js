@@ -1,5 +1,5 @@
 import { state, isManager } from "../state.js";
-import { $, esc, money, qty, showError, toast, openModal, closeModal } from "../utils.js";
+import { $, esc, money, qty, showError, toast, openModal, closeModal, today } from "../utils.js";
 import { unitOptions, unitSelect } from "../units.js";
 import { safeSelect, insertRow, updateRow, deleteRows } from "../services/db.js";
 import { loadItems, loadItemDeps } from "./items.js";
@@ -12,7 +12,6 @@ let batchMovements = [];
 let filters = { search: "", recipe_id: "", status: "", production_kind: "" };
 
 const same = (a, b) => String(a || "").toLowerCase().trim() === String(b || "").toLowerCase().trim();
-const today = () => new Date().toISOString().slice(0, 10);
 const item = id => (state.items || []).find(i => i.id === id);
 const itemLabel = i => i ? `${i.name}${i.name_ar ? " / " + i.name_ar : ""}` : "Item";
 const recipeName = r => r?.name || `Recipe-${String(r?.id || "").slice(0, 8)}`;
