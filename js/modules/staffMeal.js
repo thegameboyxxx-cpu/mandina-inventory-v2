@@ -9,6 +9,7 @@ let lines = [];
 let menuItems = [];
 let components = [];
 let timeEntries = [];
+let policy = null;
 
 const employee = id => employees.find(e => e.id === id);
 const menuName = m => m ? `${m.name}${m.name_ar ? " / " + m.name_ar : ""}` : "Menu Item";
@@ -24,6 +25,7 @@ async function loadMealData() {
   menuItems = await safeSelect("menu_items", "*", { order: "name" }).catch(() => []);
   components = await safeSelect("menu_item_components", "*", { order: "sort_order" }).catch(() => []);
   timeEntries = await safeSelect("time_entries", "*", { eq: { branch_id: state.currentBranchId }, order: "created_at", ascending: false }).catch(() => []);
+  policy = (await safeSelect("staff_meal_policy", "*").catch(() => []))[0] || { max_discountable_amount: 30, discount_percentage: 50, require_active_shift: true, min_hours_required: 0 };
 }
 
 export async function renderStaffMeal() {
@@ -36,6 +38,7 @@ export async function renderStaffMeal() {
         <div class="section-head">
           <h2>Staff Meal</h2>
           <div class="toolbar">
+            ${isManager() ? `<button class="btn secondary" id="staffMealPolicyBtn">Meal Rule</button>` : ""}
             <button class="btn" id="requestStaffMealBtn">+ Staff Meal</button>
           </div>
         </div>
@@ -43,6 +46,7 @@ export async function renderStaffMeal() {
         <div id="staffMealTable"></div>
       </div>
     `;
+    if (isManager()) $("staffMealPolicyBtn").onclick = openPolicyModal;
     $("requestStaffMealBtn").onclick = openStaffMealModal;
     renderMealTable();
   } catch (err) {
@@ -56,7 +60,7 @@ function renderMealTable() {
       <div class="card"><div class="stat-title">Submitted</div><div><b>${meals.filter(m => m.status === "submitted").length}</b></div></div>
       <div class="card"><div class="stat-title">Approved Today</div><div><b>${meals.filter(m => m.status === "approved" && m.meal_date === today()).length}</b></div></div>
       <div class="card"><div class="stat-title">Meal Cost</div><div><b>${money(meals.reduce((s, m) => s + Number(m.total_estimated_cost || 0), 0))}</b></div></div>
-      <div class="card"><div class="stat-title">Testing</div><div><b>Active</b></div></div>
+      <div class="card"><div class="stat-title">Meal Rule</div><div><b>${money(policy?.max_discountable_amount || 0)} @ ${Number(policy?.discount_percentage || 0)}%</b></div><div class="muted">${policy?.require_active_shift === false ? "Shift not required" : "Active shift preferred"}</div></div>
     </div>
     <table>
       <thead><tr><th>Meal</th><th>Date</th><th>Employee</th><th>Lines</th><th>Cost</th><th>Status</th><th></th></tr></thead>
@@ -111,18 +115,29 @@ function openStaffMealModal() {
     if (!activeShift) toast("No active shift found. Manager can still review this request.", "info");
     const menu = menuItems.find(m => m.id === fd.get("menu_item_id"));
     const amount = Number(fd.get("qty") || 1);
+    const total = Number(menu?.sale_price || 0) * amount;
+    const discountable = Math.min(total, Number(policy?.max_discountable_amount || 0));
+    const discount = discountable * Number(policy?.discount_percentage || 0) / 100;
+    const charge = total - discount;
     try {
       const meal = await insertRow("staff_meals", {
         staff_meal_number: `SM-${Date.now().toString().slice(-8)}`,
         branch_id: state.currentBranchId,
         employee_id: emp.id,
+        user_id: state.user.id,
         meal_date: fd.get("meal_date"),
         shift_id: activeShift?.shift_id || null,
         status: "submitted",
-        total_estimated_cost: Number(menu?.sale_price || 0) * amount,
+        total_estimated_cost: total,
+        total_menu_value: total,
+        discountable_amount: discountable,
+        discount_amount: discount,
+        full_price_remainder: Math.max(0, total - discountable),
+        employee_charge: charge,
         allowance_used: true,
         notes: fd.get("notes") || null,
         requested_by: state.user.id,
+        created_by: state.user.id,
         updated_at: new Date().toISOString(),
       });
       await insertRow("staff_meal_lines", {
@@ -130,13 +145,53 @@ function openStaffMealModal() {
         menu_item_id: menu.id,
         item_name: menuName(menu),
         qty: amount,
-        estimated_cost: Number(menu?.sale_price || 0) * amount,
+        unit_price: Number(menu?.sale_price || 0),
+        line_total: total,
+        estimated_cost: total,
       });
       toast("Staff meal submitted.", "ok");
       closeModal();
       renderStaffMeal();
     } catch (err) {
       toast("Staff meal save failed: " + err.message, "error");
+    }
+  };
+}
+
+function openPolicyModal() {
+  openModal(`
+    <div class="modal-head"><h3>Staff Meal Rule</h3><button class="btn secondary small" onclick="closeModal()">x</button></div>
+    <form id="staffMealPolicyForm">
+      <div class="modal-body">
+        <div class="form-grid">
+          <div><label>Max Discountable Amount</label><input name="max_discountable_amount" type="number" step="0.01" class="input" value="${esc(policy?.max_discountable_amount ?? 30)}"></div>
+          <div><label>Discount Percentage</label><input name="discount_percentage" type="number" step="0.01" class="input" value="${esc(policy?.discount_percentage ?? 50)}"></div>
+          <div><label>Minimum Hours Required</label><input name="min_hours_required" type="number" step="0.01" class="input" value="${esc(policy?.min_hours_required ?? 0)}"></div>
+          <div><label>Require Active Shift</label><select name="require_active_shift"><option value="true" ${policy?.require_active_shift !== false ? "selected" : ""}>Yes</option><option value="false" ${policy?.require_active_shift === false ? "selected" : ""}>No</option></select></div>
+        </div>
+      </div>
+      <div class="modal-foot"><button type="button" class="btn secondary" onclick="closeModal()">Cancel</button><button class="btn">Save Rule</button></div>
+    </form>
+  `);
+  $("staffMealPolicyForm").onsubmit = async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const payload = {
+      max_discountable_amount: Number(fd.get("max_discountable_amount") || 0),
+      discount_percentage: Number(fd.get("discount_percentage") || 0),
+      min_hours_required: Number(fd.get("min_hours_required") || 0),
+      require_active_shift: fd.get("require_active_shift") === "true",
+      updated_at: new Date().toISOString(),
+      updated_by: state.user.id,
+    };
+    try {
+      if (policy?.id) await updateRow("staff_meal_policy", policy.id, payload);
+      else await insertRow("staff_meal_policy", payload);
+      toast("Staff meal rule saved.", "ok");
+      closeModal();
+      renderStaffMeal();
+    } catch (err) {
+      toast("Rule save failed: " + err.message, "error");
     }
   };
 }
