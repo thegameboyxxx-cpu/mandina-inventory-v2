@@ -7,6 +7,7 @@ let shifts = [];
 let templates = [];
 let templateLines = [];
 let view = { start: today(), mode: "week" };
+let dragState = null;
 
 const ROLE_OPTIONS = [
   ["front_staff", "Front Staff"],
@@ -98,7 +99,16 @@ function renderShiftPlanner() {
       ${days.map(day => renderTimelineDay(day, rows.filter(s => s.shift_date === day), range)).join("")}
     </div>
   `;
-  document.querySelectorAll(".edit-shift").forEach(btn => btn.onclick = () => openShiftModal(shifts.find(s => s.id === btn.dataset.id)));
+  document.querySelectorAll(".shift-pill").forEach(btn => {
+    btn.onclick = () => {
+      if (btn.dataset.dragged === "true") {
+        btn.dataset.dragged = "";
+        return;
+      }
+      openShiftModal(shifts.find(s => s.id === btn.dataset.id));
+    };
+    btn.onpointerdown = startShiftDrag;
+  });
 }
 
 function renderTimeHeader(range) {
@@ -129,11 +139,16 @@ function renderTimelineDay(day, dayShifts, range) {
         ${layout.items.map(item => {
           const s = item.shift;
           const e = employee(s.employee_id);
-          const left = minuteLeft(minutes(s.start_time), range);
-          const width = Math.max(60, minuteLeft(minutes(s.end_time), range) - left);
-          return `<button class="shift-pill edit-shift" data-id="${esc(s.id)}" style="left:${left}px;top:${8 + item.lane * 46}px;width:${width}px">
+          const role = s.role || e?.operational_role || "front_staff";
+          const start = minutesAbs(s.start_time, s.start_time);
+          const end = endMinutesAbs(s);
+          const left = minuteLeft(start, range);
+          const width = Math.max(60, minuteLeft(end, range) - left);
+          return `<button class="shift-pill role-${esc(role)}" data-id="${esc(s.id)}" data-range-start="${range.start}" data-range-end="${range.end}" data-range-width="${range.width}" style="left:${left}px;top:${8 + item.lane * 46}px;width:${width}px">
+            <span class="shift-resize left" data-edge="left"></span>
             <b>${esc(employeeLabel(e))}</b>
-            <span>${esc(timeShort(s.start_time))}-${esc(timeShort(s.end_time))} · ${esc(roleLabel(s.role || e?.operational_role))}</span>
+            <span>${esc(timeShort(s.start_time))}-${esc(timeShort(s.end_time))} - ${esc(roleLabel(role))}</span>
+            <span class="shift-resize right" data-edge="right"></span>
           </button>`;
         }).join("") || '<div class="muted" style="padding:12px">No shifts planned.</div>'}
       </div>
@@ -150,7 +165,7 @@ function layoutShifts(dayShifts) {
       lane = laneEnds.length;
       laneEnds.push(0);
     }
-    laneEnds[lane] = minutes(shift.end_time);
+    laneEnds[lane] = endMinutesAbs(shift);
     return { shift, lane };
   });
   return { items, lanes: Math.max(1, laneEnds.length) };
@@ -193,7 +208,6 @@ function openShiftModal(shift = null) {
   $("shiftForm").onsubmit = async e => {
     e.preventDefault();
     const fd = new FormData(e.target);
-    if (fd.get("end_time") <= fd.get("start_time")) return toast("End time must be after start time.", "error");
     const payload = {
       employee_id: fd.get("employee_id"),
       branch_id: state.currentBranchId,
@@ -321,6 +335,92 @@ function openApplyTemplateModal() {
   };
 }
 
+function startShiftDrag(event) {
+  if (event.button !== 0) return;
+  const pill = event.currentTarget;
+  const shift = shifts.find(s => s.id === pill.dataset.id);
+  if (!shift) return;
+  const lane = pill.closest(".shift-time-lane");
+  const edge = event.target.closest(".shift-resize")?.dataset.edge || "move";
+  dragState = {
+    pill,
+    shift,
+    lane,
+    edge,
+    startX: event.clientX,
+    originalLeft: parseFloat(pill.style.left || "0"),
+    originalWidth: parseFloat(pill.style.width || "60"),
+    rangeStart: Number(pill.dataset.rangeStart),
+    rangeEnd: Number(pill.dataset.rangeEnd),
+    rangeWidth: Number(pill.dataset.rangeWidth),
+    moved: false,
+  };
+  pill.setPointerCapture(event.pointerId);
+  pill.classList.add("dragging");
+  window.addEventListener("pointermove", moveShiftDrag);
+  window.addEventListener("pointerup", endShiftDrag, { once: true });
+}
+
+function moveShiftDrag(event) {
+  if (!dragState) return;
+  const dx = event.clientX - dragState.startX;
+  if (Math.abs(dx) > 3) dragState.moved = true;
+  let left = dragState.originalLeft;
+  let width = dragState.originalWidth;
+  if (dragState.edge === "move") {
+    left = dragState.originalLeft + dx;
+  } else if (dragState.edge === "left") {
+    left = dragState.originalLeft + dx;
+    width = dragState.originalWidth - dx;
+  } else if (dragState.edge === "right") {
+    width = dragState.originalWidth + dx;
+  }
+  const minWidth = pixelsForMinutes(30, dragState);
+  left = Math.max(0, Math.min(left, dragState.rangeWidth - minWidth));
+  width = Math.max(minWidth, Math.min(width, dragState.rangeWidth - left));
+  dragState.pill.style.left = `${left}px`;
+  dragState.pill.style.width = `${width}px`;
+}
+
+async function endShiftDrag() {
+  if (!dragState) return;
+  window.removeEventListener("pointermove", moveShiftDrag);
+  const stateCopy = dragState;
+  dragState = null;
+  stateCopy.pill.classList.remove("dragging");
+  if (!stateCopy.moved) return;
+  stateCopy.pill.dataset.dragged = "true";
+  const start = snapMinutes(minutesForLeft(parseFloat(stateCopy.pill.style.left || "0"), stateCopy));
+  const end = snapMinutes(minutesForLeft(parseFloat(stateCopy.pill.style.left || "0") + parseFloat(stateCopy.pill.style.width || "0"), stateCopy));
+  const payload = {
+    start_time: minutesToTime(start % 1440),
+    end_time: minutesToTime(end % 1440),
+    updated_at: new Date().toISOString(),
+  };
+  try {
+    await updateRow("shift_schedules", stateCopy.shift.id, payload);
+    const local = shifts.find(s => s.id === stateCopy.shift.id);
+    if (local) Object.assign(local, payload);
+    toast("Shift updated.", "ok");
+    renderShiftPlanner();
+  } catch (err) {
+    toast("Shift update failed: " + err.message, "error");
+    renderShiftPlanner();
+  }
+}
+
+function pixelsForMinutes(value, range) {
+  return value / (range.rangeEnd - range.rangeStart) * range.rangeWidth;
+}
+
+function minutesForLeft(left, range) {
+  return range.rangeStart + (left / range.rangeWidth) * (range.rangeEnd - range.rangeStart);
+}
+
+function snapMinutes(value) {
+  return Math.round(value / 15) * 15;
+}
+
 function roleOptions(selected) {
   return ROLE_OPTIONS.map(([value, label]) => `<option value="${esc(value)}" ${value === selected ? "selected" : ""}>${esc(label)}</option>`).join("");
 }
@@ -360,6 +460,16 @@ function minutes(value) {
   return (h || 0) * 60 + (m || 0);
 }
 
+function minutesAbs(value) {
+  return minutes(value);
+}
+
+function endMinutesAbs(shift) {
+  const start = minutes(shift.start_time);
+  const end = minutes(shift.end_time);
+  return end <= start ? end + 1440 : end;
+}
+
 function minutesToTime(value) {
   const h = Math.floor(value / 60);
   const m = value % 60;
@@ -368,9 +478,9 @@ function minutesToTime(value) {
 
 function timeRange(rows) {
   const starts = rows.map(s => minutes(s.start_time));
-  const ends = rows.map(s => minutes(s.end_time));
+  const ends = rows.map(s => endMinutesAbs(s));
   const start = Math.max(0, Math.min(...starts, 8 * 60) - 60);
-  const end = Math.min(24 * 60, Math.max(...ends, 23 * 60) + 60);
+  const end = Math.max(27 * 60, Math.max(...ends, 23 * 60) + 60);
   return { start, end, width: Math.max(900, ((end - start) / 60) * 92) };
 }
 
@@ -379,7 +489,7 @@ function minuteLeft(value, range) {
 }
 
 function shiftHours(s) {
-  return Math.max(0, minutes(s.end_time) - minutes(s.start_time)) / 60;
+  return Math.max(0, endMinutesAbs(s) - minutes(s.start_time)) / 60;
 }
 
 function shiftCost(s) {

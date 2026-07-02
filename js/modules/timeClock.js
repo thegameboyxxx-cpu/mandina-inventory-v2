@@ -8,6 +8,7 @@ let entries = [];
 
 const TEST_MODE = true;
 const GRACE_MINUTES = 5;
+const CLOCK_ALERT_MINUTES = 60;
 const employee = id => employees.find(e => e.id === id);
 const employeeByNumber = number => employees.find(e => String(e.employee_number).trim() === String(number).trim() && e.active !== false);
 const branchName = id => (state.branches || []).find(b => b.id === id)?.name || id || "-";
@@ -116,7 +117,7 @@ async function clockIn(e) {
     required: !TEST_MODE && timing.requiresReason,
     onSave: async reason => {
       try {
-        await insertRow("time_entries", {
+        const entry = await insertRow("time_entries", {
           employee_id: e.id,
           shift_id: shift?.id || null,
           branch_id: state.currentBranchId,
@@ -126,6 +127,7 @@ async function clockIn(e) {
           created_by: state.user.id,
           updated_at: new Date().toISOString(),
         });
+        await maybeCreateClockAlert(entry, e, shift, timing, reason).catch(() => {});
         toast("Clock in saved.", "ok");
         closeModal();
         renderTimeClock();
@@ -209,8 +211,39 @@ function timingStatus(shift, direction) {
   const word = diff > 0 ? "late" : "early";
   return {
     requiresReason: abs > GRACE_MINUTES,
+    minutesDiff: diff,
+    absMinutes: abs,
     label: abs <= GRACE_MINUTES ? "Within 5 min buffer" : `${abs} min ${word}`,
   };
+}
+
+async function maybeCreateClockAlert(entry, employeeRow, shift, timing, reason) {
+  const noShift = !shift;
+  const farFromShift = shift && Number(timing.absMinutes || 0) > CLOCK_ALERT_MINUTES;
+  if (!noShift && !farFromShift) return;
+  const title = noShift ? "Unplanned clock-in" : "Clock-in far from planned shift";
+  const detail = {
+    employee_id: employeeRow.id,
+    employee_number: employeeRow.employee_number,
+    employee_name: employeeRow.full_name,
+    time_entry_id: entry.id,
+    clock_in_at: entry.clock_in_at,
+    branch_id: state.currentBranchId,
+    shift_id: shift?.id || null,
+    planned_start_time: shift?.start_time || null,
+    planned_end_time: shift?.end_time || null,
+    minutes_from_planned_start: shift ? timing.minutesDiff : null,
+    reason: reason || null,
+  };
+  await state.db.from("alerts").insert({
+    branch_id: state.currentBranchId,
+    alert_type: noShift ? "TIME_CLOCK_UNPLANNED" : "TIME_CLOCK_FAR_FROM_SHIFT",
+    title,
+    detail,
+    reference_id: entry.id,
+    reference_type: "time_clock",
+    status: "open",
+  });
 }
 
 function minutesNow() {
