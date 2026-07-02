@@ -1,5 +1,5 @@
 import { state } from "../state.js";
-import { $, esc, qty, showError } from "../utils.js";
+import { $, esc, qty, showError, formatDateTimeMelbourne } from "../utils.js";
 import { safeSelect } from "../services/db.js";
 import { loadItemDeps, loadItems } from "./items.js";
 
@@ -17,6 +17,10 @@ const currentQty = itemId => {
   return Number(bal?.qty_on_hand ?? bal?.current_qty ?? bal?.quantity ?? 0);
 };
 const categoryName = id => state.categories.find(c => c.id === id)?.name || "";
+const supplierName = id => {
+  const supplier = state.suppliers.find(s => s.id === id);
+  return supplier?.name || supplier?.company_name || supplier?.supplier_name || "";
+};
 const stockStatus = item => {
   const amount = currentQty(item.id);
   const reorder = Number(item.reorder_level || 0);
@@ -86,7 +90,7 @@ function renderStockTables() {
   const q = stockFilters.search.toLowerCase();
   const rows = (state.items || [])
     .filter(item => item.active !== false)
-    .filter(item => !q || JSON.stringify(item).toLowerCase().includes(q))
+    .filter(item => !q || stockSearchText(item).includes(q))
     .filter(item => !stockFilters.status || stockStatus(item).key === stockFilters.status)
     .sort((a, b) => itemLabel(a).localeCompare(itemLabel(b)));
 
@@ -131,7 +135,7 @@ function renderStockTables() {
         ${movements.slice(0, 30).map(m => {
           const item = state.items.find(i => i.id === m.item_id);
           return `<tr>
-            <td>${esc((m.created_at || "").slice(0, 19).replace("T", " "))}</td>
+            <td>${esc(formatDateTimeMelbourne(m.created_at))}</td>
             <td>${esc(itemLabel(item))}</td>
             <td>${esc(m.movement_type || "")}</td>
             <td><b>${qty(m.qty_change ?? m.qty ?? m.quantity ?? 0)}</b></td>
@@ -143,4 +147,17 @@ function renderStockTables() {
       </tbody>
     </table>
   `;
+}
+
+function stockSearchText(item) {
+  return [
+    item.name,
+    item.name_ar,
+    itemType(item),
+    categoryName(item.category_id),
+    supplierName(item.primary_supplier_id),
+    item.stock_unit,
+    item.receiving_unit,
+    item.cost_unit,
+  ].filter(Boolean).join(" ").toLowerCase();
 }

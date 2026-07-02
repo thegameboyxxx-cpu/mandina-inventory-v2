@@ -1,5 +1,5 @@
 import { state, isManager } from "../state.js";
-import { $, esc, money, qty, showError, toast, openModal, closeModal, today } from "../utils.js";
+import { $, esc, money, qty, showError, toast, openModal, closeModal, businessToday, businessDayForTimestamp } from "../utils.js";
 import { safeSelect, insertRow, updateRow } from "../services/db.js";
 import { loadItems } from "./items.js";
 
@@ -9,6 +9,7 @@ let lines = [];
 let menuItems = [];
 let components = [];
 let timeEntries = [];
+let shifts = [];
 let policy = null;
 
 const employee = id => employees.find(e => e.id === id);
@@ -25,6 +26,7 @@ async function loadMealData() {
   menuItems = await safeSelect("menu_items", "*", { order: "name" }).catch(() => []);
   components = await safeSelect("menu_item_components", "*", { order: "sort_order" }).catch(() => []);
   timeEntries = await safeSelect("time_entries", "*", { eq: { branch_id: state.currentBranchId }, order: "created_at", ascending: false }).catch(() => []);
+  shifts = await safeSelect("shift_schedules", "*", { eq: { branch_id: state.currentBranchId }, order: "shift_date" }).catch(() => []);
   policy = (await safeSelect("staff_meal_policy", "*").catch(() => []))[0] || { max_discountable_amount: 30, discount_percentage: 50, require_active_shift: true, min_hours_required: 0 };
 }
 
@@ -58,25 +60,27 @@ function renderMealTable() {
   $("staffMealTable").innerHTML = `
     <div class="grid cards" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:14px">
       <div class="card"><div class="stat-title">Submitted</div><div><b>${meals.filter(m => m.status === "submitted").length}</b></div></div>
-      <div class="card"><div class="stat-title">Approved Today</div><div><b>${meals.filter(m => m.status === "approved" && m.meal_date === today()).length}</b></div></div>
+      <div class="card"><div class="stat-title">Approved Today</div><div><b>${meals.filter(m => m.status === "approved" && m.meal_date === businessToday()).length}</b></div></div>
       <div class="card"><div class="stat-title">Meal Cost</div><div><b>${money(meals.reduce((s, m) => s + Number(m.total_estimated_cost || 0), 0))}</b></div></div>
       <div class="card"><div class="stat-title">Meal Rule</div><div><b>${money(policy?.max_discountable_amount || 0)} @ ${Number(policy?.discount_percentage || 0)}%</b></div><div class="muted">${policy?.require_active_shift === false ? "Shift not required" : "Active shift preferred"}</div></div>
     </div>
     <table>
-      <thead><tr><th>Meal</th><th>Date</th><th>Employee</th><th>Lines</th><th>Cost</th><th>Status</th><th></th></tr></thead>
+      <thead><tr><th>Meal</th><th>Date</th><th>Employee</th><th>Lines</th><th>Original Cost</th><th>Discount</th><th>Employee Charge</th><th>Status</th><th></th></tr></thead>
       <tbody>
         ${meals.map(m => `<tr>
           <td><b>${esc(mealNo(m))}</b></td>
           <td>${esc(m.meal_date || "")}</td>
           <td>${esc(employeeDisplay(employee(m.employee_id)))}</td>
           <td>${linesFor(m.id).length}</td>
-          <td>${money(m.total_estimated_cost)}</td>
+          <td>${money(m.total_menu_value ?? m.total_estimated_cost)}</td>
+          <td>${money(m.discount_amount)}</td>
+          <td><b>${money(m.employee_charge ?? m.total_estimated_cost)}</b></td>
           <td><span class="badge ${m.status === "approved" ? "green" : m.status === "rejected" || m.status === "cancelled" ? "red" : "gold"}">${esc(m.status)}</span></td>
           <td>
             <button class="btn secondary small view-staff-meal" data-id="${esc(m.id)}">View</button>
             ${isManager() && m.status === "submitted" ? `<button class="btn green small approve-staff-meal" data-id="${esc(m.id)}">Approve</button><button class="btn red small reject-staff-meal" data-id="${esc(m.id)}">Reject</button>` : ""}
           </td>
-        </tr>`).join("") || '<tr><td colspan="7" class="muted">No staff meals yet.</td></tr>'}
+        </tr>`).join("") || '<tr><td colspan="9" class="muted">No staff meals yet.</td></tr>'}
       </tbody>
     </table>
   `;
@@ -96,7 +100,7 @@ function openStaffMealModal() {
       <div class="modal-body">
         <div class="form-grid">
           <div><label>Employee Number</label><input name="employee_number" class="input" inputmode="numeric" required></div>
-          <div><label>Meal Date</label><input name="meal_date" type="date" class="input" value="${today()}" required></div>
+          <div><label>Meal Date</label><input name="meal_date" type="date" class="input" value="${businessToday()}" required></div>
           <div><label>Menu Item</label><select name="menu_item_id" required>${menuItems.filter(m => m.active !== false).map(m => `<option value="${esc(m.id)}">${esc(menuName(m))}</option>`).join("")}</select></div>
           <div><label>Qty</label><input name="qty" class="input" type="number" step="0.001" value="1" required></div>
           <div class="full"><label>Notes</label><textarea name="notes" class="input" rows="2"></textarea></div>
@@ -119,13 +123,15 @@ function openStaffMealModal() {
     const discountable = Math.min(total, Number(policy?.max_discountable_amount || 0));
     const discount = discountable * Number(policy?.discount_percentage || 0) / 100;
     const charge = total - discount;
+    const shift = activeShift ? shifts.find(s => s.id === activeShift.shift_id) : null;
+    const mealDate = shift?.shift_date || (activeShift ? businessDayForTimestamp(activeShift.clock_in_at || activeShift.created_at) : fd.get("meal_date"));
     try {
       const meal = await insertRow("staff_meals", {
         staff_meal_number: `SM-${Date.now().toString().slice(-8)}`,
         branch_id: state.currentBranchId,
         employee_id: emp.id,
         user_id: state.user.id,
-        meal_date: fd.get("meal_date"),
+        meal_date: mealDate,
         shift_id: activeShift?.shift_id || null,
         status: "submitted",
         total_estimated_cost: total,

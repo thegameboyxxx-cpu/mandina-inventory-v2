@@ -1,9 +1,10 @@
 import { state, isManager } from "../state.js";
-import { $, esc, money, showError, toast, today, dateKey, openModal, closeModal } from "../utils.js";
+import { $, esc, money, showError, toast, today, dateKey, openModal, closeModal, businessDayForTimestamp, formatDateTimeMelbourne } from "../utils.js";
 import { safeSelect, insertRow } from "../services/db.js";
 
 let employees = [];
 let entries = [];
+let shifts = [];
 let periods = [];
 let lines = [];
 let staffMeals = [];
@@ -18,6 +19,7 @@ const employeeLabel = e => e ? `${e.full_name} (#${e.employee_number})` : "Emplo
 async function loadPayrollData() {
   employees = await safeSelect("employees", "*", { order: "employee_number" }).catch(() => []);
   entries = await safeSelect("time_entries", "*", { eq: { branch_id: state.currentBranchId }, order: "created_at", ascending: false }).catch(() => []);
+  shifts = await safeSelect("shift_schedules", "*", { eq: { branch_id: state.currentBranchId }, order: "shift_date" }).catch(() => []);
   periods = await safeSelect("payroll_periods", "*", { eq: { branch_id: state.currentBranchId }, order: "created_at", ascending: false }).catch(() => []);
   lines = await safeSelect("payroll_lines", "*").catch(() => []);
   staffMeals = await safeSelect("staff_meals", "*", { eq: { branch_id: state.currentBranchId }, order: "meal_date", ascending: false }).catch(() => []);
@@ -88,7 +90,7 @@ function renderPayrollView() {
         <td>${money(r.due)}</td>
         <td>
           <button class="btn secondary small payroll-view" data-id="${esc(r.employee.id)}">View</button>
-          ${r.due <= 0 ? '<span class="badge green">Paid</span>' : `<button class="btn green small payroll-pay" data-id="${esc(r.employee.id)}">Pay</button>`}
+          ${payrollAction(r)}
         </td>
       </tr>`).join("") || '<tr><td colspan="9" class="muted">No clocked-out time entries in this period.</td></tr>'}</tbody>
     </table>
@@ -105,7 +107,7 @@ function renderPayrollView() {
 
 function payrollRows() {
   const periodEntries = entries.filter(e => {
-    const d = (e.clock_in_at || "").slice(0, 10);
+    const d = entryBusinessDay(e);
     return e.status === "clocked_out" && d >= filters.from && d <= filters.to;
   });
   const byEmployee = new Map();
@@ -125,10 +127,10 @@ function payrollRows() {
     row.deductionItems = mealDeductions(row.employee.id);
     row.grossPay = cents(row.grossPay);
     row.deductions = cents(row.deductionItems.reduce((s, d) => s + d.amount, 0));
-    row.netPay = cents(Math.max(0, row.grossPay - row.deductions));
+    row.netPay = cents(row.grossPay - row.deductions);
     row.paymentItems = periodPayments(row.employee.id);
     row.paid = cents(row.paymentItems.reduce((s, p) => s + Number(p.payment_amount || 0), 0));
-    row.due = cents(Math.max(0, row.netPay - row.paid));
+    row.due = cents(row.netPay - row.paid);
   }
   return [...byEmployee.values()].sort((a, b) => String(a.employee.employee_number).localeCompare(String(b.employee.employee_number)));
 }
@@ -148,6 +150,12 @@ function baseRow(emp) {
     deductionItems: [],
     paymentItems: [],
   };
+}
+
+function payrollAction(row) {
+  if (row.due < 0) return '<span class="badge red">Owes Company</span>';
+  if (row.due === 0) return '<span class="badge green">Paid</span>';
+  return `<button class="btn green small payroll-pay" data-id="${esc(row.employee.id)}">Pay</button>`;
 }
 
 function mealDeductions(employeeId) {
@@ -226,7 +234,7 @@ function openPayrollDetails(row) {
       </div>
       <h3 style="margin:0 0 10px">Clock Entries</h3>
       <table><thead><tr><th>Date</th><th>Clock In</th><th>Clock Out</th><th>Minutes</th><th>Pay</th></tr></thead><tbody>
-        ${row.entries.map(e => `<tr><td>${esc((e.clock_in_at || "").slice(0, 10))}</td><td>${esc(localDateTime(e.clock_in_at))}</td><td>${esc(localDateTime(e.clock_out_at))}</td><td>${Number(e.paid_minutes_exact || 0)}</td><td>${money(Number(e.paid_minutes_exact || 0) * (row.rate / 60))}</td></tr>`).join("")}
+        ${row.entries.map(e => `<tr><td>${esc(entryBusinessDay(e))}</td><td>${esc(localDateTime(e.clock_in_at))}</td><td>${esc(localDateTime(e.clock_out_at))}</td><td>${Number(e.paid_minutes_exact || 0)}</td><td>${money(Number(e.paid_minutes_exact || 0) * (row.rate / 60))}</td></tr>`).join("")}
       </tbody></table>
       <h3 style="margin:18px 0 10px">Deductions</h3>
       <table><thead><tr><th>Date</th><th>For</th><th>Reason</th><th>Amount</th></tr></thead><tbody>
@@ -351,8 +359,7 @@ function exactPaidMinutes(entry) {
 }
 
 function localDateTime(value) {
-  if (!value) return "-";
-  return new Date(value).toLocaleString("en-AU", { dateStyle: "short", timeStyle: "short" });
+  return formatDateTimeMelbourne(value);
 }
 
 function dateOnly(value) {
@@ -363,4 +370,9 @@ function paymentOverlapsFilter(payment) {
   const start = dateOnly(payment.period_start);
   const end = dateOnly(payment.period_end);
   return start <= filters.to && end >= filters.from;
+}
+
+function entryBusinessDay(entry) {
+  const shift = shifts.find(s => s.id === entry.shift_id);
+  return shift?.shift_date || businessDayForTimestamp(entry.clock_in_at || entry.created_at);
 }

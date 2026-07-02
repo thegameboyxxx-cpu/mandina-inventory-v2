@@ -1,5 +1,5 @@
 import { state, isManager } from "../state.js";
-import { $, esc, money, showError, toast, openModal, closeModal, today, dateKey } from "../utils.js";
+import { $, esc, money, showError, toast, openModal, closeModal, today, dateKey, dateKeyInZone, businessDayForTimestamp, formatTimeMelbourne } from "../utils.js";
 import { safeSelect, insertRow, updateRow } from "../services/db.js";
 
 let employees = [];
@@ -143,7 +143,7 @@ function renderTimelineDay(day, dayShifts, range) {
           const s = item.shift;
           const e = employee(s.employee_id);
           const role = s.role || e?.operational_role || "front_staff";
-          const start = minutesAbs(s.start_time, s.start_time);
+          const start = startMinutesAbs(s);
           const end = endMinutesAbs(s);
           const left = minuteLeft(start, range);
           const width = Math.max(60, minuteLeft(end, range) - left);
@@ -160,7 +160,7 @@ function renderTimelineDay(day, dayShifts, range) {
 }
 
 function plannerRows(days) {
-  return days.flatMap(day => day < today() ? actualRowsForDay(day) : plannedRowsForDay(day));
+  return days.flatMap(day => [...plannedRowsForDay(day), ...actualRowsForDay(day)]);
 }
 
 function plannedRowsForDay(day) {
@@ -171,17 +171,21 @@ function plannedRowsForDay(day) {
 
 function actualRowsForDay(day) {
   return timeEntries
-    .filter(entry => (entry.clock_in_at || entry.created_at || "").slice(0, 10) === day)
+    .filter(entry => entryBusinessDay(entry) === day)
     .map(entry => {
       const e = employee(entry.employee_id);
       const start = toLocalTime(entry.clock_in_at || entry.created_at);
       const end = entry.clock_out_at ? toLocalTime(entry.clock_out_at) : timeShort(start);
+      const startAbs = actualMinutesAbs(entry.clock_in_at || entry.created_at, day);
+      const endAbs = entry.clock_out_at ? actualMinutesAbs(entry.clock_out_at, day) : startAbs;
       return {
         id: entry.id,
         employee_id: entry.employee_id,
-        shift_date: day,
+        shift_date: entryBusinessDay(entry),
         start_time: start,
         end_time: entry.clock_out_at ? end : start,
+        start_abs: startAbs,
+        end_abs: Math.max(endAbs, startAbs),
         role: e?.operational_role || "front_staff",
         status: entry.status,
         source: "actual",
@@ -190,11 +194,16 @@ function actualRowsForDay(day) {
     });
 }
 
+function entryBusinessDay(entry) {
+  const shift = shifts.find(s => s.id === entry.shift_id);
+  return shift?.shift_date || businessDayForTimestamp(entry.clock_in_at || entry.created_at);
+}
+
 function layoutShifts(dayShifts) {
-  const sorted = [...dayShifts].sort((a, b) => minutes(a.start_time) - minutes(b.start_time));
+  const sorted = [...dayShifts].sort((a, b) => startMinutesAbs(a) - startMinutesAbs(b));
   const laneEnds = [];
   const items = sorted.map(shift => {
-    let lane = laneEnds.findIndex(end => end <= minutes(shift.start_time));
+    let lane = laneEnds.findIndex(end => end <= startMinutesAbs(shift));
     if (lane === -1) {
       lane = laneEnds.length;
       laneEnds.push(0);
@@ -498,10 +507,21 @@ function minutesAbs(value) {
   return minutes(value);
 }
 
+function startMinutesAbs(shift) {
+  return Number(shift.start_abs ?? minutes(shift.start_time));
+}
+
 function endMinutesAbs(shift) {
+  if (shift.end_abs !== undefined && shift.end_abs !== null) return Number(shift.end_abs);
   const start = minutes(shift.start_time);
   const end = minutes(shift.end_time);
   return end <= start ? end + 1440 : end;
+}
+
+function actualMinutesAbs(value, businessDay) {
+  const localTime = toLocalTime(value);
+  const localDate = dateKeyInZone(value);
+  return minutes(localTime) + (localDate > businessDay ? 1440 : 0);
 }
 
 function minutesToTime(value) {
@@ -512,7 +532,7 @@ function minutesToTime(value) {
 
 function timeRange(rows) {
   if (!rows.length) return { start: 8 * 60, end: 27 * 60, width: 19 * 92 };
-  const starts = rows.map(s => minutes(s.start_time));
+  const starts = rows.map(s => startMinutesAbs(s));
   const ends = rows.map(s => endMinutesAbs(s));
   const start = Math.max(0, Math.min(...starts, 8 * 60) - 60);
   const end = Math.max(27 * 60, Math.max(...ends, 23 * 60) + 60);
@@ -525,7 +545,7 @@ function minuteLeft(value, range) {
 
 function shiftHours(s) {
   if (s.source === "actual" && Number(s.paid_minutes || 0) > 0) return Number(s.paid_minutes || 0) / 60;
-  return Math.max(0, endMinutesAbs(s) - minutes(s.start_time)) / 60;
+  return Math.max(0, endMinutesAbs(s) - startMinutesAbs(s)) / 60;
 }
 
 function shiftCost(s) {
@@ -533,7 +553,5 @@ function shiftCost(s) {
 }
 
 function toLocalTime(value) {
-  if (!value) return "00:00";
-  const d = new Date(value);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  return formatTimeMelbourne(value);
 }

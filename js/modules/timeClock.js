@@ -1,5 +1,5 @@
 import { state, isManager } from "../state.js";
-import { $, esc, showError, toast, openModal, closeModal, today } from "../utils.js";
+import { $, esc, showError, toast, openModal, closeModal, businessToday, businessDayForTimestamp, formatDateTimeMelbourne } from "../utils.js";
 import { safeSelect, insertRow, updateRow } from "../services/db.js";
 
 let employees = [];
@@ -48,7 +48,8 @@ export async function renderTimeClock() {
 }
 
 function renderClockPanel() {
-  const todayEntries = entries.filter(e => (e.clock_in_at || e.created_at || "").slice(0, 10) === today());
+  const day = businessToday();
+  const todayEntries = entries.filter(e => entryBusinessDay(e) === day);
   const openEntries = entries.filter(e => e.status === "clocked_in");
   $("clockPanel").innerHTML = `
     <div class="grid cards" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:14px">
@@ -198,7 +199,7 @@ function openClockReasonModal({ title, employee: e, shift, timing, required, onS
 }
 
 function shiftForEmployeeToday(employeeId) {
-  const day = today();
+  const day = businessToday();
   return shifts
     .filter(s => s.employee_id === employeeId && s.shift_date === day && s.status !== "cancelled")
     .sort((a, b) => Math.abs(minutesNow() - minutes(a.start_time)) - Math.abs(minutesNow() - minutes(b.start_time)))[0];
@@ -261,13 +262,17 @@ function timeShort(value) {
 }
 
 function formatDateTime(value) {
-  if (!value) return "-";
-  return new Date(value).toLocaleString("en-AU", { dateStyle: "short", timeStyle: "short" });
+  return formatDateTimeMelbourne(value);
 }
 
 function minutesToHours(value) {
   const n = Number(value || 0);
   return n ? `${(n / 60).toFixed(2)}h` : "-";
+}
+
+function entryBusinessDay(entry) {
+  const shift = shifts.find(s => s.id === entry.shift_id);
+  return shift?.shift_date || businessDayForTimestamp(entry.clock_in_at || entry.created_at);
 }
 
 document.addEventListener("click", e => {
