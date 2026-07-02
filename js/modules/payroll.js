@@ -11,10 +11,19 @@ let staffMeals = [];
 let staffMealLines = [];
 let cashCounts = [];
 let payments = [];
+let employeeDeductions = [];
 let filters = { from: weekStart(today()), to: today() };
 
 const employee = id => employees.find(e => e.id === id);
 const employeeLabel = e => e ? `${e.full_name} (#${e.employee_number})` : "Employee";
+const DEDUCTION_TYPES = [
+  ["damage", "Damage"],
+  ["advance", "Advance"],
+  ["manual_deduction", "Manual Deduction"],
+  ["other", "Other"],
+];
+const deductionTypeLabel = value => DEDUCTION_TYPES.find(t => t[0] === value)?.[1] || value || "Other";
+const deductionTypeOptions = selected => DEDUCTION_TYPES.map(([value, label]) => `<option value="${esc(value)}" ${value === selected ? "selected" : ""}>${esc(label)}</option>`).join("");
 
 async function loadPayrollData() {
   employees = await safeSelect("employees", "*", { order: "employee_number" }).catch(() => []);
@@ -27,6 +36,7 @@ async function loadPayrollData() {
   staffMealLines = (await safeSelect("staff_meal_lines", "*").catch(() => [])).filter(l => mealIds.has(l.staff_meal_id));
   cashCounts = await safeSelect("cash_register_counts", "*", { eq: { branch_id: state.currentBranchId }, order: "count_date", ascending: false }).catch(() => []);
   payments = await safeSelect("payroll_payments", "*", { eq: { branch_id: state.currentBranchId }, order: "paid_at", ascending: false }).catch(() => []);
+  employeeDeductions = await safeSelect("employee_deductions", "*", { eq: { branch_id: state.currentBranchId }, order: "deduction_date", ascending: false }).catch(() => []);
 }
 
 export async function renderPayroll() {
@@ -45,6 +55,7 @@ export async function renderPayroll() {
           <div class="toolbar">
             <input id="payrollFrom" class="input" type="date" value="${esc(filters.from)}">
             <input id="payrollTo" class="input" type="date" value="${esc(filters.to)}">
+            <button class="btn secondary" id="employeeDeductionsBtn">Deductions</button>
             <button class="btn" id="calculatePayrollBtn">Calculate Period</button>
           </div>
         </div>
@@ -54,6 +65,7 @@ export async function renderPayroll() {
     `;
     $("payrollFrom").onchange = e => { filters.from = e.target.value; renderPayrollView(); };
     $("payrollTo").onchange = e => { filters.to = e.target.value; renderPayrollView(); };
+    $("employeeDeductionsBtn").onclick = openDeductionsModal;
     $("calculatePayrollBtn").onclick = calculatePayroll;
     renderPayrollView();
   } catch (err) {
@@ -78,13 +90,14 @@ function renderPayrollView() {
       <div class="card"><div class="stat-title">Cash Balance</div><div><b>${money(cash)}</b></div></div>
     </div>
     <table>
-      <thead><tr><th>Employee</th><th>Rate</th><th>Paid Time</th><th>Gross</th><th>Deductions</th><th>Net Pay</th><th>Paid</th><th>Due</th><th></th></tr></thead>
+      <thead><tr><th>Employee</th><th>Rate</th><th>Paid Time</th><th>Gross</th><th>Meal Charges</th><th>Other Deductions</th><th>Net Pay</th><th>Paid</th><th>Due</th><th></th></tr></thead>
       <tbody>${rows.map(r => `<tr>
         <td>${esc(employeeLabel(r.employee))}</td>
         <td>${money(r.rate)}</td>
         <td>${r.minutes} min (${r.hours.toFixed(2)}h)</td>
         <td>${money(r.grossPay)}</td>
-        <td>${money(r.deductions)}<div class="muted">Staff meals</div></td>
+        <td>${money(r.staffMealDeductions)}</td>
+        <td>${money(r.otherDeductions)}</td>
         <td><b>${money(r.netPay)}</b></td>
         <td>${money(r.paid)}</td>
         <td>${money(r.due)}</td>
@@ -92,7 +105,7 @@ function renderPayrollView() {
           <button class="btn secondary small payroll-view" data-id="${esc(r.employee.id)}">View</button>
           ${payrollAction(r)}
         </td>
-      </tr>`).join("") || '<tr><td colspan="9" class="muted">No clocked-out time entries in this period.</td></tr>'}</tbody>
+      </tr>`).join("") || '<tr><td colspan="10" class="muted">No clocked-out time entries in this period.</td></tr>'}</tbody>
     </table>
     <div style="margin-top:18px">
       <h3 style="margin:0 0 10px">Recent Payroll Periods</h3>
@@ -123,10 +136,20 @@ function payrollRows() {
     row.entries.push({ ...entry, paid_minutes_exact: paidMinutes });
     byEmployee.set(emp.id, row);
   }
+  for (const emp of employees.filter(e => e.active !== false && e.branch_id === state.currentBranchId)) {
+    if (byEmployee.has(emp.id)) continue;
+    if (mealDeductions(emp.id).length || otherDeductions(emp.id).length || periodPayments(emp.id).length) {
+      byEmployee.set(emp.id, baseRow(emp));
+    }
+  }
   for (const row of byEmployee.values()) {
-    row.deductionItems = mealDeductions(row.employee.id);
+    row.staffMealItems = mealDeductions(row.employee.id);
+    row.otherDeductionItems = otherDeductions(row.employee.id);
+    row.deductionItems = [...row.staffMealItems, ...row.otherDeductionItems];
     row.grossPay = cents(row.grossPay);
-    row.deductions = cents(row.deductionItems.reduce((s, d) => s + d.amount, 0));
+    row.staffMealDeductions = cents(row.staffMealItems.reduce((s, d) => s + d.amount, 0));
+    row.otherDeductions = cents(row.otherDeductionItems.reduce((s, d) => s + d.amount, 0));
+    row.deductions = cents(row.staffMealDeductions + row.otherDeductions);
     row.netPay = cents(row.grossPay - row.deductions);
     row.paymentItems = periodPayments(row.employee.id);
     row.paid = cents(row.paymentItems.reduce((s, p) => s + Number(p.payment_amount || 0), 0));
@@ -143,11 +166,15 @@ function baseRow(emp) {
     hours: 0,
     grossPay: 0,
     deductions: 0,
+    staffMealDeductions: 0,
+    otherDeductions: 0,
     netPay: 0,
     paid: 0,
     due: 0,
     entries: [],
     deductionItems: [],
+    staffMealItems: [],
+    otherDeductionItems: [],
     paymentItems: [],
   };
 }
@@ -168,9 +195,28 @@ function mealDeductions(employeeId) {
       id: m.id,
       date: dateOnly(m.meal_date),
       label: mealNo(m),
+      type: "Staff Meal Charges",
       reason: mealSummary(m),
       amount: Number(m.employee_charge ?? m.total_estimated_cost ?? 0),
       meal: m,
+    }))
+    .filter(d => d.amount > 0);
+}
+
+function otherDeductions(employeeId) {
+  return employeeDeductions
+    .filter(d => {
+      const deductionDate = dateOnly(d.deduction_date || d.created_at);
+      return d.employee_id === employeeId && d.status !== "voided" && deductionDate >= filters.from && deductionDate <= filters.to;
+    })
+    .map(d => ({
+      id: d.id,
+      date: dateOnly(d.deduction_date || d.created_at),
+      label: deductionTypeLabel(d.deduction_type),
+      type: deductionTypeLabel(d.deduction_type),
+      reason: d.reason || d.notes || "-",
+      amount: Number(d.amount || 0),
+      deduction: d,
     }))
     .filter(d => d.amount > 0);
 }
@@ -237,8 +283,8 @@ function openPayrollDetails(row) {
         ${row.entries.map(e => `<tr><td>${esc(entryBusinessDay(e))}</td><td>${esc(localDateTime(e.clock_in_at))}</td><td>${esc(localDateTime(e.clock_out_at))}</td><td>${Number(e.paid_minutes_exact || 0)}</td><td>${money(Number(e.paid_minutes_exact || 0) * (row.rate / 60))}</td></tr>`).join("")}
       </tbody></table>
       <h3 style="margin:18px 0 10px">Deductions</h3>
-      <table><thead><tr><th>Date</th><th>For</th><th>Reason</th><th>Amount</th></tr></thead><tbody>
-        ${row.deductionItems.map(d => `<tr><td>${esc(d.date)}</td><td>${esc(d.label)}</td><td>${esc(d.reason)}</td><td>${money(d.amount)}</td></tr>`).join("") || '<tr><td colspan="4" class="muted">No deductions in this period.</td></tr>'}
+      <table><thead><tr><th>Date</th><th>Type</th><th>For</th><th>Reason</th><th>Amount</th></tr></thead><tbody>
+        ${row.deductionItems.map(d => `<tr><td>${esc(d.date)}</td><td>${esc(d.type || "-")}</td><td>${esc(d.label)}</td><td>${esc(d.reason)}</td><td>${money(d.amount)}</td></tr>`).join("") || '<tr><td colspan="5" class="muted">No deductions in this period.</td></tr>'}
       </tbody></table>
       <h3 style="margin:18px 0 10px">Payments</h3>
       <table><thead><tr><th>Date</th><th>Covers</th><th>Method</th><th>Reference</th><th>Amount</th><th>Notes</th></tr></thead><tbody>
@@ -247,6 +293,55 @@ function openPayrollDetails(row) {
     </div>
     <div class="modal-foot"><button class="btn secondary" onclick="closeModal()">Close</button></div>
   `);
+}
+
+function openDeductionsModal() {
+  const activeEmployees = employees.filter(e => e.active !== false && e.branch_id === state.currentBranchId);
+  openModal(`
+    <div class="modal-head"><h3>Employee Deductions</h3><button class="btn secondary small" onclick="closeModal()">x</button></div>
+    <form id="employeeDeductionForm">
+      <div class="modal-body">
+        <div class="form-grid">
+          <div><label>Employee</label><select name="employee_id" required>${activeEmployees.map(e => `<option value="${esc(e.id)}">${esc(employeeLabel(e))}</option>`).join("")}</select></div>
+          <div><label>Date</label><input name="deduction_date" type="date" class="input" value="${esc(today())}" required></div>
+          <div><label>Type</label><select name="deduction_type">${deductionTypeOptions()}</select></div>
+          <div><label>Amount</label><input name="amount" type="number" step="0.01" class="input" required></div>
+          <div class="full"><label>Reason</label><input name="reason" class="input" placeholder="Reason for deduction"></div>
+          <div class="full"><label>Notes</label><textarea name="notes" class="input" rows="2"></textarea></div>
+        </div>
+        <h3 style="margin:18px 0 10px">Recent Deductions</h3>
+        <table><thead><tr><th>Date</th><th>Employee</th><th>Type</th><th>Amount</th><th>Reason</th></tr></thead><tbody>
+          ${employeeDeductions.slice(0, 20).map(d => `<tr><td>${esc(dateOnly(d.deduction_date || d.created_at))}</td><td>${esc(employeeLabel(employee(d.employee_id)))}</td><td>${esc(deductionTypeLabel(d.deduction_type))}</td><td>${money(d.amount)}</td><td>${esc(d.reason || d.notes || "")}</td></tr>`).join("") || '<tr><td colspan="5" class="muted">No manual deductions yet.</td></tr>'}
+        </tbody></table>
+      </div>
+      <div class="modal-foot"><button type="button" class="btn secondary" onclick="closeModal()">Cancel</button><button class="btn">Add Deduction</button></div>
+    </form>
+  `);
+  $("employeeDeductionForm").onsubmit = async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const amount = Number(fd.get("amount") || 0);
+    if (amount <= 0) return toast("Deduction amount must be more than zero.", "error");
+    try {
+      await insertRow("employee_deductions", {
+        branch_id: state.currentBranchId,
+        employee_id: fd.get("employee_id"),
+        deduction_date: fd.get("deduction_date"),
+        deduction_type: fd.get("deduction_type"),
+        amount,
+        reason: fd.get("reason") || null,
+        notes: fd.get("notes") || null,
+        status: "active",
+        created_by: state.user.id,
+        updated_at: new Date().toISOString(),
+      });
+      toast("Employee deduction added.", "ok");
+      closeModal();
+      renderPayroll();
+    } catch (err) {
+      toast("Deduction save failed: " + err.message, "error");
+    }
+  };
 }
 
 function openPayModal(row) {

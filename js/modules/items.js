@@ -40,6 +40,15 @@ function receivingText(item) {
     : item.receiving_unit || item.purchase_package_type || "";
 }
 
+async function itemHasHistory(itemId) {
+  const checks = await Promise.all([
+    state.db.from("stock_movements").select("id", { count: "exact", head: true }).eq("item_id", itemId),
+    state.db.from("purchase_order_lines").select("id", { count: "exact", head: true }).eq("item_id", itemId),
+    state.db.from("receiving_note_lines").select("id", { count: "exact", head: true }).eq("item_id", itemId),
+  ].map(p => p.catch(() => ({ count: 0 }))));
+  return checks.some(result => Number(result.count || 0) > 0);
+}
+
 export async function renderItems() {
   if (!isManager()) return $("content").innerHTML = showError("Staff users cannot access Items.");
 
@@ -99,8 +108,9 @@ function renderItemsTable() {
   });
 }
 
-function openItemModal(item = null) {
+async function openItemModal(item = null) {
   const edit = !!item;
+  const unitsLocked = edit ? await itemHasHistory(item.id) : false;
   openModal(`
     <div class="modal-head">
       <h3>${edit ? "Edit Item" : "Add Item"}</h3>
@@ -108,19 +118,20 @@ function openItemModal(item = null) {
     </div>
     <form id="itemForm">
       <div class="modal-body">
+        ${unitsLocked ? `<div class="errorbox">This item already has purchase, receiving, or stock history. Unit and package conversion fields are locked to protect existing stock history.</div>` : ""}
         <div class="form-grid">
           <div><label>Item Name</label><input name="name" class="input" required value="${esc(item?.name || "")}"></div>
           <div><label>Arabic Name</label><input name="name_ar" class="input" value="${esc(item?.name_ar || "")}"></div>
           <div><label>Item Type</label><select name="item_type"><option value="raw">Raw / Supplied Item</option><option value="produced">Produced Item</option></select><div class="muted">Produced items can be selected as production outputs.</div></div>
           <div><label>Category</label><select name="category_id">${options(state.categories, item?.category_id, c => c.name)}</select></div>
           <div><label>Primary Supplier</label><select name="primary_supplier_id">${options(state.suppliers, item?.primary_supplier_id, supplierName)}</select></div>
-          <div><label>Receiving Unit</label>${unitSelect("receiving_unit", item?.receiving_unit || item?.purchase_package_type || "", "required")}<div class="muted">What staff count when goods arrive.</div></div>
-          <div><label>Stock Unit</label>${unitSelect("stock_unit", item?.stock_unit || "", "required")}<div class="muted">Stock, counts, sales, waste and reorder use this.</div></div>
-          <div><label>Cost / Billing Unit</label>${unitSelect("cost_unit", item?.cost_unit || item?.secondary_unit || item?.stock_unit || "", "required")}<div class="muted">Supplier invoice unit.</div></div>
+          <div><label>Receiving Unit</label>${unitSelect("receiving_unit", item?.receiving_unit || item?.purchase_package_type || "", `required ${unitsLocked ? "disabled" : ""}`)}<div class="muted">What staff count when goods arrive.</div></div>
+          <div><label>Stock Unit</label>${unitSelect("stock_unit", item?.stock_unit || "", `required ${unitsLocked ? "disabled" : ""}`)}<div class="muted">Stock, counts, sales, waste and reorder use this.</div></div>
+          <div><label>Cost / Billing Unit</label>${unitSelect("cost_unit", item?.cost_unit || item?.secondary_unit || item?.stock_unit || "", `required ${unitsLocked ? "disabled" : ""}`)}<div class="muted">Supplier invoice unit.</div></div>
           <div><label>Cost per Billing Unit</label><input name="default_purchase_price" type="number" step="0.01" class="input" value="${esc(item?.default_purchase_price ?? "")}"><div class="muted">Example: $18/kg, $50/bottle, $36/carton.</div></div>
-          <div><label>Purchase Package Type</label><select name="purchase_package_type">${["", "bag", "box", "carton", "tray", "bucket", "bottle", "pack", "roll", "piece"].map(v => `<option value="${v}" ${v === (item?.purchase_package_type || "") ? "selected" : ""}>${v || "-- Select --"}</option>`).join("")}</select></div>
-          <div><label>Package Quantity</label><input name="purchase_package_qty" type="number" step="0.001" class="input" value="${esc(item?.purchase_package_qty ?? "")}"></div>
-          <div><label>Package Unit</label>${unitSelect("purchase_package_unit", item?.purchase_package_unit || "")}</div>
+          <div><label>Purchase Package Type</label><select name="purchase_package_type" ${unitsLocked ? "disabled" : ""}>${["", "bag", "box", "carton", "tray", "bucket", "bottle", "pack", "roll", "piece"].map(v => `<option value="${v}" ${v === (item?.purchase_package_type || "") ? "selected" : ""}>${v || "-- Select --"}</option>`).join("")}</select></div>
+          <div><label>Package Quantity</label><input name="purchase_package_qty" type="number" step="0.001" class="input" value="${esc(item?.purchase_package_qty ?? "")}" ${unitsLocked ? "disabled" : ""}></div>
+          <div><label>Package Unit</label>${unitSelect("purchase_package_unit", item?.purchase_package_unit || "", unitsLocked ? "disabled" : "")}</div>
           <div><label>Reorder Level</label><input name="reorder_level" type="number" step="0.001" class="input" value="${esc(item?.reorder_level ?? "")}"><div class="muted">Based on Stock Unit.</div></div>
           <div><label>Reorder Qty</label><input name="reorder_qty" type="number" step="0.001" class="input" value="${esc(item?.reorder_qty ?? "")}"><div class="muted">Based on receiving/order unit.</div></div>
           <div><label>Recipe/Sales Controlled?</label><select name="is_recipe_controlled"><option value="false">No - count report only</option><option value="true">Yes - sales variance alert</option></select></div>
@@ -142,19 +153,19 @@ function openItemModal(item = null) {
     e.preventDefault();
     const form = new FormData(e.target);
     const numberOrNull = key => form.get(key) === "" ? null : Number(form.get(key));
-    const stockUnit = form.get("stock_unit");
-    const costUnit = form.get("cost_unit");
+    const stockUnit = unitsLocked ? item.stock_unit : form.get("stock_unit");
+    const costUnit = unitsLocked ? (item.cost_unit || item.secondary_unit || item.stock_unit) : form.get("cost_unit");
     const payload = {
       name: form.get("name"),
       name_ar: form.get("name_ar") || null,
       category_id: form.get("category_id") || null,
       primary_supplier_id: form.get("primary_supplier_id") || null,
       item_type: form.get("item_type") || "raw",
-      receiving_unit: form.get("receiving_unit"),
+      receiving_unit: unitsLocked ? item.receiving_unit : form.get("receiving_unit"),
       cost_unit: costUnit,
-      purchase_package_type: form.get("purchase_package_type") || null,
-      purchase_package_qty: numberOrNull("purchase_package_qty"),
-      purchase_package_unit: form.get("purchase_package_unit") || null,
+      purchase_package_type: unitsLocked ? item.purchase_package_type : form.get("purchase_package_type") || null,
+      purchase_package_qty: unitsLocked ? item.purchase_package_qty : numberOrNull("purchase_package_qty"),
+      purchase_package_unit: unitsLocked ? item.purchase_package_unit : form.get("purchase_package_unit") || null,
       stock_unit: stockUnit,
       has_dual_unit: costUnit !== stockUnit,
       secondary_unit: costUnit !== stockUnit ? costUnit : null,

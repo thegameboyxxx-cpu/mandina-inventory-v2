@@ -204,6 +204,9 @@ function actualRowsForDay(day) {
         status: entry.status,
         source: "actual",
         paid_minutes: entry.paid_minutes,
+        clock_in_at: entry.clock_in_at,
+        clock_out_at: entry.clock_out_at,
+        break_minutes: entry.break_minutes,
       };
     });
 }
@@ -255,12 +258,27 @@ function openShiftModal(shift = null) {
           <div class="full"><label>Notes</label><textarea name="notes" class="input" rows="2">${esc(shift?.notes || "")}</textarea></div>
         </div>
       </div>
-      <div class="modal-foot"><button type="button" class="btn secondary" onclick="closeModal()">Cancel</button><button class="btn">Save</button></div>
+      <div class="modal-foot">
+        <button type="button" class="btn secondary" onclick="closeModal()">Cancel</button>
+        ${shift ? `<button type="button" class="btn red" id="deleteShiftBtn">Delete Shift</button>` : ""}
+        <button class="btn">Save</button>
+      </div>
     </form>
   `);
   $("shiftEmployee").onchange = e => {
     const opt = e.target.selectedOptions[0];
     $("shiftRole").value = opt?.dataset.role || "front_staff";
+  };
+  if (shift && $("deleteShiftBtn")) $("deleteShiftBtn").onclick = async () => {
+    if (!confirm("Delete this planned shift from the planner?")) return;
+    try {
+      await updateRow("shift_schedules", shift.id, { status: "cancelled", updated_at: new Date().toISOString() });
+      toast("Shift deleted from planner.", "ok");
+      closeModal();
+      renderShifts();
+    } catch (err) {
+      toast("Shift delete failed: " + err.message, "error");
+    }
   };
   $("shiftForm").onsubmit = async e => {
     e.preventDefault();
@@ -584,6 +602,10 @@ function minuteLeft(value, range) {
 
 function shiftHours(s) {
   if (s.source === "actual" && Number(s.paid_minutes || 0) > 0) return Number(s.paid_minutes || 0) / 60;
+  if (s.source === "actual" && s.clock_in_at && s.clock_out_at) {
+    const total = Math.max(0, Math.round((new Date(s.clock_out_at) - new Date(s.clock_in_at)) / 60000));
+    return Math.max(0, total - Number(s.break_minutes || 0)) / 60;
+  }
   return Math.max(0, endMinutesAbs(s) - startMinutesAbs(s)) / 60;
 }
 

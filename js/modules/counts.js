@@ -19,6 +19,8 @@ const currentQty = itemId => {
   const bal = balances.find(b => b.item_id === itemId);
   return Number(bal?.qty_on_hand ?? bal?.current_qty ?? bal?.quantity ?? 0);
 };
+const countedPresent = line => line?.counted_qty !== null && line?.counted_qty !== undefined && line?.counted_qty !== "";
+const varianceForLine = line => countedPresent(line) ? Number(line.counted_qty || 0) - Number(line.expected_qty || 0) : 0;
 const statusBadge = status => {
   const value = status || "draft";
   const cls = value === "approved" ? "green" : value === "submitted" ? "gold" : value === "rejected" || value === "cancelled" ? "red" : "blue";
@@ -132,7 +134,7 @@ function renderCountsTable() {
       <tbody>
         ${rows.map(c => {
           const lines = linesFor(c.id);
-          const varianceTotal = lines.reduce((s, l) => s + Number(l.variance ?? 0), 0);
+          const varianceTotal = lines.reduce((s, l) => s + varianceForLine(l), 0);
           return `<tr>
             <td><b>${esc(countNo(c))}</b><div class="muted">${esc(c.notes || "")}</div></td>
             <td>${esc(countDate(c))}</td>
@@ -261,7 +263,6 @@ function openNewCountModal() {
 function openCountEditor(count) {
   const readOnly = !canEdit(count);
   const managerReview = canReview(count);
-  const countedPresent = line => line.counted_qty !== null && line.counted_qty !== undefined && line.counted_qty !== "";
   const computedVariance = line => countedPresent(line) ? Number(line.counted_qty || 0) - Number(line.expected_qty || 0) : null;
   let localLines = linesFor(count.id).map(l => {
     const line = { ...l };
@@ -401,18 +402,17 @@ function openCountEditor(count) {
   }
 
   async function saveLines() {
-    for (const line of localLines) {
-      const payload = {
+    const payload = localLines.map(line => ({
+        id: line.id,
         counted_qty: line.counted_qty === "" ? null : line.counted_qty,
         variance_reason: line.variance_reason || null,
         notes: line.notes || null,
         requires_manager_review: Number(line.variance || 0) !== 0,
         approved_adjustment_qty: managerReview ? (line.approved_adjustment_qty === "" ? null : line.approved_adjustment_qty) : computedVariance(line),
         updated_at: new Date().toISOString(),
-      };
-      const { error } = await state.db.from("stock_count_lines").update(payload).eq("id", line.id);
-      if (error) throw error;
-    }
+      }));
+    const { error } = await state.db.from("stock_count_lines").upsert(payload);
+    if (error) throw error;
   }
 
   async function refreshAfter(message) {
@@ -467,10 +467,10 @@ function openCountEditor(count) {
     try {
       await saveLines();
       const adjustments = localLines.filter(l => l.counted_qty !== null && l.counted_qty !== undefined && l.counted_qty !== "" && Number(l.approved_adjustment_qty ?? l.variance ?? 0) !== 0);
-      for (const line of adjustments) {
+      const movements = adjustments.map(line => {
         const it = item(line.item_id);
         const adj = Number(line.approved_adjustment_qty ?? line.variance ?? 0);
-        const { error } = await state.db.from("stock_movements").insert({
+        return {
           branch_id: state.currentBranchId,
           item_id: line.item_id,
           movement_type: "DAILY_COUNT_ADJUSTMENT",
@@ -483,7 +483,10 @@ function openCountEditor(count) {
           reference_type: "daily_count",
           notes: `Daily count ${countNo(count)} adjustment${line.variance_reason ? ": " + line.variance_reason : ""}`,
           created_by: state.user.id,
-        });
+        };
+      });
+      if (movements.length) {
+        const { error } = await state.db.from("stock_movements").insert(movements);
         if (error) throw error;
       }
       await updateRow("stock_counts", count.id, {

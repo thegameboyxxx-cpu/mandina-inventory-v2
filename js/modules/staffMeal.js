@@ -207,6 +207,11 @@ function openMealDetails(meal) {
   openModal(`
     <div class="modal-head"><h3>${esc(mealNo(meal))}</h3><button class="btn secondary small" onclick="closeModal()">x</button></div>
     <div class="modal-body">
+      <div class="grid cards" style="grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:14px">
+        <div class="card"><div class="stat-title">Original Cost</div><div><b>${money(meal.total_menu_value ?? meal.total_estimated_cost)}</b></div></div>
+        <div class="card"><div class="stat-title">Discount</div><div><b>${money(meal.discount_amount)}</b></div></div>
+        <div class="card"><div class="stat-title">Employee Charge</div><div><b>${money(meal.employee_charge ?? meal.total_estimated_cost)}</b></div></div>
+      </div>
       <div class="form-grid">
         <div><label>Employee</label><input class="input" value="${esc(employeeDisplay(employee(meal.employee_id)))}" disabled></div>
         <div><label>Status</label><input class="input" value="${esc(meal.status)}" disabled></div>
