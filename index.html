@@ -14,7 +14,12 @@
       <img src="https://www.mandinakitchen.com.au/wp-content/uploads/2021/12/Mandina-Logo.png">
       <h1>Mandina Inventory V2</h1>
       <p>Inventory & Production System</p>
-      <button class="btn" id="loginBtn">Login with Google</button>
+      <div class="form-grid" style="text-align:left;margin-top:14px">
+        <div class="full"><label>Employee Number</label><input id="staffEmployeeNumber" class="input" inputmode="numeric" placeholder="Employee number"></div>
+        <div class="full"><label>Password</label><input id="staffPassword" class="input" type="password" placeholder="Password"></div>
+      </div>
+      <button class="btn" id="staffLoginBtn" style="width:100%;margin-top:12px">Employee Login</button>
+      <button class="btn secondary" id="loginBtn" style="width:100%;margin-top:10px">Manager Login with Google</button>
       <div id="loginError" class="errorbox hidden"></div>
     </div>
   </div>
@@ -31,6 +36,7 @@
       <div class="nav" id="nav">
         <button data-page="dashboard" class="active">&#128202; Dashboard</button>
         <button data-page="alerts" data-manager="true">&#128680; Alerts</button>
+        <button data-page="users" data-manager="true">&#128272; Users</button>
         <button data-page="suppliers" data-manager="true">&#128666; Suppliers</button>
         <button data-page="items" data-manager="true">&#128230; Items</button>
         <button data-page="producedItems" data-manager="true">&#127834; Produced Items</button>

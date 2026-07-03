@@ -2,6 +2,7 @@ import { state, isManager } from "./state.js";
 import { $, esc, toast } from "./utils.js";
 import { renderDashboard } from "./modules/dashboard.js";
 import { renderAlerts } from "./modules/alerts.js";
+import { renderUsers } from "./modules/users.js";
 import { renderSuppliers } from "./modules/suppliers.js";
 import { renderItemsSimple } from "./modules/itemsSimple.js";
 import { renderProducedItems } from "./modules/producedItems.js";
@@ -46,10 +47,11 @@ export function setPage(page){
 }
 
 export async function refreshCurrent(){
-  const titles = { dashboard:"Dashboard", alerts:"Alerts", suppliers:"Suppliers", items:"Items", producedItems:"Produced Items", menuItems:"Menu Items", purchase:"Purchase Orders", receiving:"Receiving", stock:"Stock", production:"Production", counts:"Daily Count", waste:"Wastage", sales:"Sales", employees:"Employees", shifts:"Shift Planner", timeclock:"Time Clock", staffmeal:"Staff Meal", payroll:"Payroll" };
+  const titles = { dashboard:"Dashboard", alerts:"Alerts", users:"Users", suppliers:"Suppliers", items:"Items", producedItems:"Produced Items", menuItems:"Menu Items", purchase:"Purchase Orders", receiving:"Receiving", stock:"Stock", production:"Production", counts:"Daily Count", waste:"Wastage", sales:"Sales", employees:"Employees", shifts:"Shift Planner", timeclock:"Time Clock", staffmeal:"Staff Meal", payroll:"Payroll" };
   $("pageTitle").textContent = titles[state.page] || "Mandina";
   if(state.page === "dashboard") return renderDashboard();
   if(state.page === "alerts") return renderAlerts();
+  if(state.page === "users") return renderUsers();
   if(state.page === "suppliers") return renderSuppliers();
   if(state.page === "items") return renderItemsSimple();
   if(state.page === "producedItems") return renderProducedItems();
