@@ -73,7 +73,31 @@ function renderStaffHelp() {
 
 function renderManagerEntries() {
   const rows = entries.slice(0, 80);
+  const openRows = entries
+    .filter(entry => entry.status === "clocked_in")
+    .sort((a, b) => new Date(a.clock_in_at || a.created_at) - new Date(b.clock_in_at || b.created_at));
   return `
+    <div class="card" style="margin-bottom:14px">
+      <div class="section-head"><h3 style="margin:0">Currently Clocked In</h3></div>
+      <table>
+        <thead><tr><th>Employee</th><th>Planned Shift</th><th>Clock In</th><th>Time In</th><th>Reason</th><th></th></tr></thead>
+        <tbody>
+          ${openRows.map(entry => {
+            const e = employee(entry.employee_id);
+            const shift = shifts.find(s => s.id === entry.shift_id);
+            return `<tr>
+              <td><b>${esc(employeeDisplay(e))}</b></td>
+              <td>${shift ? `${esc(shift.shift_date)} ${esc(timeShort(shift.start_time))}-${esc(timeShort(shift.end_time))}` : '<span class="badge gold">No shift</span>'}</td>
+              <td>${esc(formatDateTime(entry.clock_in_at))}</td>
+              <td><b>${esc(elapsedSince(entry.clock_in_at))}</b></td>
+              <td>${esc(entry.clock_in_reason || "")}</td>
+              <td><button class="btn secondary small view-time-entry" data-id="${esc(entry.id)}">View</button></td>
+            </tr>`;
+          }).join("") || '<tr><td colspan="6" class="muted">Nobody is clocked in right now.</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+    <div class="section-head"><h3 style="margin:0">Recent Time Entries</h3></div>
     <table>
       <thead><tr><th>Employee</th><th>Shift</th><th>Clock In</th><th>Clock Out</th><th>Paid</th><th>Status</th><th></th></tr></thead>
       <tbody>
@@ -268,6 +292,14 @@ function formatDateTime(value) {
 function minutesToHours(value) {
   const n = Number(value || 0);
   return n ? `${(n / 60).toFixed(2)}h` : "-";
+}
+
+function elapsedSince(value) {
+  if (!value) return "-";
+  const total = Math.max(0, Math.round((new Date() - new Date(value)) / 60000));
+  const hours = Math.floor(total / 60);
+  const mins = total % 60;
+  return hours ? `${hours}h ${mins}m` : `${mins}m`;
 }
 
 function entryBusinessDay(entry) {
