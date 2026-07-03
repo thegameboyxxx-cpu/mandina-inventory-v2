@@ -1,6 +1,6 @@
 import { state, isManager } from "../state.js";
 import { $, esc, money, showError, toast, today, dateKey, openModal, closeModal, businessDayForTimestamp, formatDateTimeMelbourne } from "../utils.js";
-import { safeSelect, insertRow } from "../services/db.js";
+import { safeSelect, insertRow, updateRow } from "../services/db.js";
 
 let employees = [];
 let entries = [];
@@ -287,12 +287,13 @@ function openPayrollDetails(row) {
         ${row.deductionItems.map(d => `<tr><td>${esc(d.date)}</td><td>${esc(d.type || "-")}</td><td>${esc(d.label)}</td><td>${esc(d.reason)}</td><td>${money(d.amount)}</td></tr>`).join("") || '<tr><td colspan="5" class="muted">No deductions in this period.</td></tr>'}
       </tbody></table>
       <h3 style="margin:18px 0 10px">Payments</h3>
-      <table><thead><tr><th>Date</th><th>Covers</th><th>Method</th><th>Reference</th><th>Amount</th><th>Notes</th></tr></thead><tbody>
-        ${row.paymentItems.map(p => `<tr><td>${esc(localDateTime(p.paid_at))}</td><td>${esc(dateOnly(p.period_start))} to ${esc(dateOnly(p.period_end))}</td><td>${esc(p.payment_method)}</td><td>${esc(p.payment_reference || "-")}</td><td>${money(p.payment_amount)}</td><td>${esc(p.notes || "")}</td></tr>`).join("") || '<tr><td colspan="6" class="muted">No payments recorded for this period.</td></tr>'}
+      <table><thead><tr><th>Date</th><th>Covers</th><th>Method</th><th>Reference</th><th>Amount</th><th>Notes</th><th></th></tr></thead><tbody>
+        ${row.paymentItems.map(p => `<tr><td>${esc(localDateTime(p.paid_at))}</td><td>${esc(dateOnly(p.period_start))} to ${esc(dateOnly(p.period_end))}</td><td>${esc(p.payment_method)}</td><td>${esc(p.payment_reference || "-")}</td><td>${money(p.payment_amount)}</td><td>${esc(p.notes || "")}</td><td><button class="btn red small void-payroll-payment" data-id="${esc(p.id)}">Cancel</button></td></tr>`).join("") || '<tr><td colspan="7" class="muted">No payments recorded for this period.</td></tr>'}
       </tbody></table>
     </div>
     <div class="modal-foot"><button class="btn secondary" onclick="closeModal()">Close</button></div>
   `);
+  document.querySelectorAll(".void-payroll-payment").forEach(btn => btn.onclick = () => voidPayrollPayment(payments.find(p => p.id === btn.dataset.id)));
 }
 
 function openDeductionsModal() {
@@ -310,13 +311,14 @@ function openDeductionsModal() {
           <div class="full"><label>Notes</label><textarea name="notes" class="input" rows="2"></textarea></div>
         </div>
         <h3 style="margin:18px 0 10px">Recent Deductions</h3>
-        <table><thead><tr><th>Date</th><th>Employee</th><th>Type</th><th>Amount</th><th>Reason</th></tr></thead><tbody>
-          ${employeeDeductions.slice(0, 20).map(d => `<tr><td>${esc(dateOnly(d.deduction_date || d.created_at))}</td><td>${esc(employeeLabel(employee(d.employee_id)))}</td><td>${esc(deductionTypeLabel(d.deduction_type))}</td><td>${money(d.amount)}</td><td>${esc(d.reason || d.notes || "")}</td></tr>`).join("") || '<tr><td colspan="5" class="muted">No manual deductions yet.</td></tr>'}
+        <table><thead><tr><th>Date</th><th>Employee</th><th>Type</th><th>Amount</th><th>Reason</th><th>Status</th><th></th></tr></thead><tbody>
+          ${employeeDeductions.slice(0, 20).map(d => `<tr><td>${esc(dateOnly(d.deduction_date || d.created_at))}</td><td>${esc(employeeLabel(employee(d.employee_id)))}</td><td>${esc(deductionTypeLabel(d.deduction_type))}</td><td>${money(d.amount)}</td><td>${esc(d.reason || d.notes || "")}</td><td><span class="badge ${d.status === "voided" ? "red" : "green"}">${esc(d.status || "active")}</span></td><td>${d.status === "voided" ? "" : `<button type="button" class="btn red small void-deduction" data-id="${esc(d.id)}">Cancel</button>`}</td></tr>`).join("") || '<tr><td colspan="7" class="muted">No manual deductions yet.</td></tr>'}
         </tbody></table>
       </div>
       <div class="modal-foot"><button type="button" class="btn secondary" onclick="closeModal()">Cancel</button><button class="btn">Add Deduction</button></div>
     </form>
   `);
+  document.querySelectorAll(".void-deduction").forEach(btn => btn.onclick = () => voidEmployeeDeduction(employeeDeductions.find(d => d.id === btn.dataset.id)));
   $("employeeDeductionForm").onsubmit = async e => {
     e.preventDefault();
     const fd = new FormData(e.target);
@@ -342,6 +344,42 @@ function openDeductionsModal() {
       toast("Deduction save failed: " + err.message, "error");
     }
   };
+}
+
+async function voidEmployeeDeduction(deduction) {
+  if (!deduction || deduction.status === "voided") return;
+  if (!confirm("Cancel this deduction? It will be removed from payroll calculations but kept in history.")) return;
+  try {
+    await updateRow("employee_deductions", deduction.id, {
+      status: "voided",
+      voided_by: state.user.id,
+      voided_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+    toast("Deduction cancelled.", "ok");
+    closeModal();
+    renderPayroll();
+  } catch (err) {
+    toast("Deduction cancel failed: " + err.message, "error");
+  }
+}
+
+async function voidPayrollPayment(payment) {
+  if (!payment || payment.status === "voided") return;
+  if (!confirm("Cancel this payroll payment record? Cash balance and due amount will recalculate.")) return;
+  try {
+    await updateRow("payroll_payments", payment.id, {
+      status: "voided",
+      voided_by: state.user.id,
+      voided_at: new Date().toISOString(),
+      notes: [payment.notes, `Voided ${new Date().toISOString()} by ${state.user.id}`].filter(Boolean).join("\n"),
+    });
+    toast("Payment record cancelled.", "ok");
+    closeModal();
+    renderPayroll();
+  } catch (err) {
+    toast("Payment cancel failed: " + err.message, "error");
+  }
 }
 
 function openPayModal(row) {

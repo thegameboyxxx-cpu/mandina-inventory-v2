@@ -18,6 +18,8 @@ create table if not exists public.payroll_payments (
   status text not null default 'paid',
   paid_by uuid references public.profiles(id),
   paid_at timestamptz not null default now(),
+  voided_by uuid references public.profiles(id),
+  voided_at timestamptz,
   created_at timestamptz not null default now(),
   constraint payroll_payments_method_check check (payment_method in ('cash','bank','card','other')),
   constraint payroll_payments_status_check check (status in ('paid','voided'))
