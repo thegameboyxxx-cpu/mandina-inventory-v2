@@ -216,7 +216,7 @@ function lowStockAlerts() {
 function countVarianceAlerts() {
   const rows = countLines
     .map(line => {
-      const variance = Number(line.approved_adjustment_qty ?? line.variance ?? (Number(line.counted_qty || 0) - Number(line.expected_qty || 0)) || 0);
+      const variance = Number((line.approved_adjustment_qty ?? line.variance ?? (Number(line.counted_qty || 0) - Number(line.expected_qty || 0))) || 0);
       const it = item(line.item_id);
       const approxCost = Math.abs(variance) * Number(it?.default_purchase_price || it?.unit_cost || 0);
       return { line, it, variance, approxCost };
