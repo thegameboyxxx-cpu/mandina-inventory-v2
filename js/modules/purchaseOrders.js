@@ -112,7 +112,7 @@ export async function renderPurchaseOrders(){
           <select id="poStatusFilter"><option value="">All status</option><option value="draft">Draft</option><option value="approved">Approved</option><option value="partially_received">Partially Received</option><option value="fully_received">Fully Received</option><option value="closed">Closed</option><option value="cancelled">Cancelled</option></select>
           <select id="poSupplierFilter"><option value="">All suppliers</option>${state.suppliers.map(s=>`<option value="${esc(s.id)}">${esc(supplierName(s))}</option>`).join("")}</select>
           <input id="poSearch" class="input" placeholder="Search PO...">
-          <button class="btn gold" id="copyReorderDraftBtn">Suggested Reorder</button>
+          <button class="btn gold" id="copyReorderDraftBtn">Low Stock Reorder</button>
           <button class="btn" id="newPoBtn">+ New PO</button>
         </div>
       </div>
@@ -312,4 +312,10 @@ function copyPoText(po, lines){ navigator.clipboard.writeText(poText(po,lines));
 function emailPo(po, lines){ mailTo(supplierEmail(getSupplier(po.supplier_id)), `Purchase Order ${poNumber(po)} - ${branchName()}`, poText(po, lines)); }
 function printPo(po, lines){ const rows=lines.filter(l=>l.item_id).map((l,i)=>`<tr><td>${i+1}</td><td>${esc(itemLabel(getItem(l.item_id)))}</td><td>${qty(l.ordered_qty)} ${esc(l.unit||l.order_unit||"")}</td><td>${esc(l.cost_unit||"")}</td><td>${money(l.unit_price)}</td><td>${lineTotalText(l)}</td></tr>`).join(""); openPrintWindow(`PO ${poNumber(po)}`, `${docHeader("Purchase Order", poNumber(po))}<div class="box"><b>Supplier:</b> ${esc(supplierName(getSupplier(po.supplier_id)))}<br><b>Date:</b> ${esc(po.order_date || "")}</div><table><thead><tr><th>#</th><th>Item</th><th>Qty</th><th>Billing Unit</th><th>Price</th><th>Total</th></tr></thead><tbody>${rows}</tbody></table><div class="total">PO Total: ${money(po.total_amount)}</div>`); }
 
-function openSuggestedReorderModal(){ const rows=purchasableItems().filter(i=>Number(i.reorder_qty||0)>0); openModal(`<div class="modal-head"><h3>Suggested Reorder Draft</h3><button class="btn secondary small" onclick="closeModal()">✕</button></div><div class="modal-body"><p class="muted">Reorder Qty is based on receiving/order unit. Reorder Level is based on stock unit.</p><table><thead><tr><th>Item</th><th>Supplier</th><th>Reorder Qty</th><th>Receiving Unit</th><th>Stock Unit</th></tr></thead><tbody>${rows.map(i=>`<tr><td>${esc(itemLabel(i))}</td><td>${esc(supplierName(getSupplier(i.primary_supplier_id)))}</td><td>${qty(i.reorder_qty)}</td><td>${esc(i.receiving_unit || i.purchase_package_type || "")}</td><td>${esc(i.stock_unit || "")}</td></tr>`).join("") || `<tr><td colspan="5" class="muted">No reorder quantities set.</td></tr>`}</tbody></table></div><div class="modal-foot"><button class="btn secondary" onclick="closeModal()">Close</button></div>`); }
+function openSuggestedReorderModal(){
+  openModal(`<div class="modal-head"><h3>Low Stock Reorder</h3><button class="btn secondary small" onclick="closeModal()">x</button></div><div class="modal-body"><p class="muted">Reorder purchase orders are now created from Alerts. The Alerts screen groups low-stock items by supplier and creates one draft PO per supplier.</p></div><div class="modal-foot"><button class="btn secondary" onclick="closeModal()">Close</button><button class="btn gold" id="goAlertsReorderBtn">Open Alerts</button></div>`);
+  $("goAlertsReorderBtn").onclick = () => {
+    closeModal();
+    document.querySelector('#nav button[data-page="alerts"]')?.click();
+  };
+}
