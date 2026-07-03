@@ -21,6 +21,16 @@ export const qty = value => {
   return Number.isInteger(n) ? String(n) : n.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
 };
 
+export function formatDuration(minutesValue) {
+  const total = Math.max(0, Math.round(Number(minutesValue || 0)));
+  if (!total) return "-";
+  const hours = Math.floor(total / 60);
+  const minutes = total % 60;
+  if (!hours) return `${minutes}m`;
+  if (!minutes) return `${hours}h`;
+  return `${hours}h ${minutes}m`;
+}
+
 export const dateKey = date => (
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
 );

@@ -1,5 +1,5 @@
 import { state, isManager } from "../state.js";
-import { $, esc, money, showError, toast, openModal, closeModal, today, dateKey, dateKeyInZone, businessDayForTimestamp, formatDateTimeMelbourne, formatTimeMelbourne } from "../utils.js";
+import { $, esc, money, showError, toast, openModal, closeModal, today, dateKey, dateKeyInZone, businessDayForTimestamp, formatDateTimeMelbourne, formatTimeMelbourne, formatDuration } from "../utils.js";
 import { safeSelect, insertRow, updateRow } from "../services/db.js";
 
 let employees = [];
@@ -318,7 +318,7 @@ function openActualShiftModal(entry) {
         <div><label>Employee</label><div>${esc(employeeLabel(e))}</div></div>
         <div><label>Status</label><div>${esc(entry.status || "-")}</div></div>
         <div><label>Business Day</label><div>${esc(entryBusinessDay(entry))}</div></div>
-        <div><label>Paid Time</label><div>${paidMinutes ? `${paidMinutes} minutes (${(paidMinutes / 60).toFixed(2)}h)` : "-"}</div></div>
+        <div><label>Paid Time</label><div>${esc(formatDuration(paidMinutes))}</div></div>
         <div><label>Clock In</label><div>${esc(formatDateTimeMelbourne(entry.clock_in_at || entry.created_at))}</div></div>
         <div><label>Clock Out</label><div>${entry.clock_out_at ? esc(formatDateTimeMelbourne(entry.clock_out_at)) : "-"}</div></div>
         <div><label>Planned Shift</label><div>${shift ? `${esc(shift.shift_date)} ${esc(timeShort(shift.start_time))}-${esc(timeShort(shift.end_time))}` : "-"}</div></div>

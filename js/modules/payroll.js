@@ -1,5 +1,5 @@
 import { state, isManager } from "../state.js";
-import { $, esc, money, showError, toast, today, dateKey, openModal, closeModal, businessDayForTimestamp, formatDateTimeMelbourne } from "../utils.js";
+import { $, esc, money, showError, toast, today, dateKey, openModal, closeModal, businessDayForTimestamp, formatDateTimeMelbourne, formatDuration } from "../utils.js";
 import { safeSelect, insertRow, updateRow } from "../services/db.js";
 
 let employees = [];
@@ -94,7 +94,7 @@ function renderPayrollView() {
       <tbody>${rows.map(r => `<tr>
         <td>${esc(employeeLabel(r.employee))}</td>
         <td>${money(r.rate)}</td>
-        <td>${r.minutes} min (${r.hours.toFixed(2)}h)</td>
+        <td>${esc(formatDuration(r.minutes))}</td>
         <td>${money(r.grossPay)}</td>
         <td>${money(r.staffMealDeductions)}</td>
         <td>${money(r.otherDeductions)}</td>
@@ -279,8 +279,8 @@ function openPayrollDetails(row) {
         <div class="card"><div class="stat-title">Due</div><div><b>${money(row.due)}</b></div></div>
       </div>
       <h3 style="margin:0 0 10px">Clock Entries</h3>
-      <table><thead><tr><th>Date</th><th>Clock In</th><th>Clock Out</th><th>Minutes</th><th>Pay</th></tr></thead><tbody>
-        ${row.entries.map(e => `<tr><td>${esc(entryBusinessDay(e))}</td><td>${esc(localDateTime(e.clock_in_at))}</td><td>${esc(localDateTime(e.clock_out_at))}</td><td>${Number(e.paid_minutes_exact || 0)}</td><td>${money(Number(e.paid_minutes_exact || 0) * (row.rate / 60))}</td></tr>`).join("")}
+      <table><thead><tr><th>Date</th><th>Clock In</th><th>Clock Out</th><th>Paid Time</th><th>Pay</th></tr></thead><tbody>
+        ${row.entries.map(e => `<tr><td>${esc(entryBusinessDay(e))}</td><td>${esc(localDateTime(e.clock_in_at))}</td><td>${esc(localDateTime(e.clock_out_at))}</td><td>${esc(formatDuration(e.paid_minutes_exact || 0))}</td><td>${money(Number(e.paid_minutes_exact || 0) * (row.rate / 60))}</td></tr>`).join("")}
       </tbody></table>
       <h3 style="margin:18px 0 10px">Deductions</h3>
       <table><thead><tr><th>Date</th><th>Type</th><th>For</th><th>Reason</th><th>Amount</th></tr></thead><tbody>

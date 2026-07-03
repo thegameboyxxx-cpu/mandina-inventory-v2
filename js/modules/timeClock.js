@@ -1,5 +1,5 @@
 import { state, isManager } from "../state.js";
-import { $, esc, showError, toast, openModal, closeModal, businessToday, businessDayForTimestamp, formatDateTimeMelbourne } from "../utils.js";
+import { $, esc, showError, toast, openModal, closeModal, businessToday, businessDayForTimestamp, formatDateTimeMelbourne, formatDuration } from "../utils.js";
 import { safeSelect, insertRow, updateRow } from "../services/db.js";
 
 let employees = [];
@@ -238,7 +238,7 @@ function timingStatus(shift, direction) {
     requiresReason: abs > GRACE_MINUTES,
     minutesDiff: diff,
     absMinutes: abs,
-    label: abs <= GRACE_MINUTES ? "Within 5 min buffer" : `${abs} min ${word}`,
+    label: abs <= GRACE_MINUTES ? "Within 5m buffer" : `${formatDuration(abs)} ${word}`,
   };
 }
 
@@ -290,16 +290,13 @@ function formatDateTime(value) {
 }
 
 function minutesToHours(value) {
-  const n = Number(value || 0);
-  return n ? `${(n / 60).toFixed(2)}h` : "-";
+  return formatDuration(value);
 }
 
 function elapsedSince(value) {
   if (!value) return "-";
   const total = Math.max(0, Math.round((new Date() - new Date(value)) / 60000));
-  const hours = Math.floor(total / 60);
-  const mins = total % 60;
-  return hours ? `${hours}h ${mins}m` : `${mins}m`;
+  return formatDuration(total);
 }
 
 function entryBusinessDay(entry) {
