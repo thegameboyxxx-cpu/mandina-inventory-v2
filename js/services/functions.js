@@ -20,6 +20,7 @@ function functionErrorMessage(body, fallback) {
   const parts = [
     usefulPrimary,
     body?.detail ? `Detail: ${errorText(body.detail)}` : "",
+    body?.step ? `Step: ${errorText(body.step)}` : "",
     body?.hint ? `Hint: ${errorText(body.hint)}` : "",
     body?.code ? `Code: ${errorText(body.code)}` : "",
     primary && primary !== usefulPrimary ? `Raw: ${primary}` : "",

@@ -6,7 +6,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const FUNCTION_VERSION = "2026-07-05.1";
+const FUNCTION_VERSION = "2026-07-05.2";
 
 function json(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify({ function_version: FUNCTION_VERSION, ...body }), {
@@ -57,7 +57,10 @@ function staffEmail(employeeNumber: string) {
 serve(async req => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
+  let step = "starting";
+
   try {
+    step = "reading environment";
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const anonKey = req.headers.get("apikey") || Deno.env.get("SUPABASE_ANON_KEY") || "";
     if (!anonKey) return json({ error: "Missing Supabase anon key." }, 500);
@@ -72,11 +75,13 @@ serve(async req => {
     const authClient = createClient(supabaseUrl, anonKey);
     const supabase = createClient(supabaseUrl, serviceKey);
 
+    step = "checking current user";
     const auth = req.headers.get("Authorization") || "";
     const jwt = auth.replace("Bearer ", "");
     const { data: userData, error: userError } = await authClient.auth.getUser(jwt);
     if (userError || !userData.user) return json({ error: "Not authenticated.", detail: userError?.message || "" }, 401);
 
+    step = "loading manager profile";
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
       .select("role, active")
@@ -87,10 +92,12 @@ serve(async req => {
       return json({ error: "Manager access required." }, 403);
     }
 
+    step = "reading request body";
     const body = await req.json();
     const action = String(body.action || "");
 
     if (action === "create-employee-login") {
+      step = "validating create employee login request";
       const employeeId = String(body.employee_id || "");
       const password = String(body.password || "");
       const branchIds = Array.isArray(body.branch_ids)
@@ -100,6 +107,7 @@ serve(async req => {
       if (!/^\d{4,}$/.test(password)) return json({ error: "Password must be at least 4 digits." }, 400);
       if (!branchIds.length) return json({ error: "At least one branch must be selected." }, 400);
 
+      step = "loading employee";
       const { data: employee, error: employeeError } = await supabase
         .from("employees")
         .select("*")
@@ -110,6 +118,7 @@ serve(async req => {
       if (employee.active === false) return json({ error: "Employee is inactive." }, 400);
 
       const email = staffEmail(String(employee.employee_number || ""));
+      step = "checking existing profile";
       const { data: existingProfile, error: existingProfileError } = await supabase
         .from("profiles")
         .select("id, email")
@@ -117,6 +126,7 @@ serve(async req => {
         .maybeSingle();
       if (existingProfileError) throw existingProfileError;
 
+      step = "listing auth users";
       const { data: existingUsers, error: listError } = await supabase.auth.admin.listUsers();
       if (listError) throw listError;
       let authUser = existingProfile?.id
@@ -124,6 +134,7 @@ serve(async req => {
         : existingUsers.users.find(user => String(user.email || "").toLowerCase() === email.toLowerCase());
 
       if (authUser) {
+        step = "updating auth user";
         const { data: updated, error: updateUserError } = await supabase.auth.admin.updateUserById(authUser.id, {
           email,
           password,
@@ -137,6 +148,7 @@ serve(async req => {
         if (updateUserError) throw updateUserError;
         authUser = updated.user;
       } else {
+        step = "creating auth user";
         const { data: created, error: createError } = await supabase.auth.admin.createUser({
           email,
           password,
@@ -152,6 +164,7 @@ serve(async req => {
       }
       if (!authUser?.id) return json({ error: "Auth user was not created." }, 500);
 
+      step = "upserting profile";
       const { error: profileUpsertError } = await supabase.from("profiles").upsert({
         id: authUser.id,
         full_name: employee.full_name,
@@ -178,11 +191,17 @@ serve(async req => {
     return json({ error: "Unknown action." }, 400);
   } catch (err) {
     try {
-      return json(errorBody(err), 500);
+      const body = errorBody(err);
+      return json({
+        ...body,
+        detail: body.detail || `Failed while ${step}.`,
+        step,
+      }, 500);
     } catch (formatError) {
       return json({
         error: "User admin failed and the error could not be formatted.",
-        detail: textValue(formatError),
+        detail: `${textValue(formatError)} while ${step}.`,
+        step,
       }, 500);
     }
   }
