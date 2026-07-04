@@ -1,4 +1,4 @@
-import { state, isManager } from "../state.js";
+import { state, canManagePurchasing } from "../state.js";
 import { $, esc, showError, toast, openModal, closeModal } from "../utils.js";
 import { unitSelect } from "../units.js";
 import { supplierName } from "./suppliers.js";
@@ -38,7 +38,7 @@ function conversionText(item) {
 }
 
 export async function renderItemsSimple() {
-  if (!isManager()) return $("content").innerHTML = showError("Staff users cannot access Items.");
+  if (!canManagePurchasing()) return $("content").innerHTML = showError("Full manager access required.");
 
   const content = $("content");
   content.innerHTML = '<div class="card">Loading items...</div>';

@@ -1,4 +1,4 @@
-import { state, isManager, canSwitchBranches } from "./state.js";
+import { state, isManager, isFullManager, canSwitchBranches } from "./state.js";
 import { $, esc, toast } from "./utils.js";
 import { renderDashboard } from "./modules/dashboard.js";
 import { renderAlerts } from "./modules/alerts.js";
@@ -25,9 +25,12 @@ export function renderShell(){
   $("loginPage").classList.add("hidden");
   $("app").classList.remove("hidden");
   $("profileLine").textContent = `${state.profile?.full_name || state.user.email}`;
-  $("roleChip").textContent = isManager() ? "Manager" : "Staff";
+  $("roleChip").textContent = isFullManager() ? "Full Manager" : isManager() ? "Manager" : "Staff";
   document.querySelectorAll("[data-manager='true']").forEach(el => {
     el.style.display = isManager() ? "" : "none";
+  });
+  document.querySelectorAll("[data-full-manager='true']").forEach(el => {
+    el.style.display = isFullManager() ? "" : "none";
   });
   renderBranchSelect();
 }

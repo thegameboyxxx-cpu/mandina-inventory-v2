@@ -76,7 +76,7 @@ async function ensureProfile() {
   if (data.active === false) throw Error("This user is inactive.");
   state.profile = data;
   state.role = (data.role || "staff").toLowerCase();
-  if (!["manager", "staff"].includes(state.role)) state.role = "staff";
+  if (!["manager", "branch_manager", "staff"].includes(state.role)) state.role = "staff";
 }
 
 async function inviteForEmail(email) {

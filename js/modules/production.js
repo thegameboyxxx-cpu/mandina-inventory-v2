@@ -1,4 +1,4 @@
-import { state, isManager } from "../state.js";
+import { state, isFullManager } from "../state.js";
 import { $, esc, money, qty, showError, toast, openModal, closeModal, today } from "../utils.js";
 import { unitOptions, unitSelect } from "../units.js";
 import { safeSelect, insertRow, updateRow, deleteRows } from "../services/db.js";
@@ -113,7 +113,7 @@ export async function renderProduction() {
             <select id="prodKindFilter"><option value="">All production</option><option value="fill_up">Fill Up</option><option value="food_production">Food Production</option></select>
             <select id="prodRecipeFilter"><option value="">All recipes</option>${recipes.map(r => `<option value="${esc(r.id)}">${esc(recipeName(r))}</option>`).join("")}</select>
             <select id="prodStatusFilter"><option value="">All status</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select>
-            ${isManager() ? `<button class="btn secondary" id="newRecipeBtn">+ Recipe Setup</button>` : ""}
+            ${isFullManager() ? `<button class="btn secondary" id="newRecipeBtn">+ Recipe Setup</button>` : ""}
             <button class="btn" id="newBatchBtn">+ Production Run</button>
           </div>
         </div>
@@ -195,7 +195,7 @@ function renderProductionTables() {
             <td>${inputs.length}</td>
             <td>${activeRecipe(r) ? `<span class="badge green">Active</span>` : `<span class="badge red">Inactive</span>`}</td>
             <td>
-              ${isManager() ? `<button class="btn secondary small edit-recipe" data-id="${esc(r.id)}">Open</button>` : ""}
+              ${isFullManager() ? `<button class="btn secondary small edit-recipe" data-id="${esc(r.id)}">Open</button>` : ""}
               ${activeRecipe(r) ? `<button class="btn small make-batch" data-id="${esc(r.id)}">Produce</button>` : ""}
             </td>
           </tr>`;
@@ -224,7 +224,7 @@ function renderProductionTables() {
             <td><span class="badge ${b.status === "cancelled" ? "red" : "green"}">${esc(b.status || "completed")}</span></td>
             <td>
               <button class="btn secondary small view-batch" data-id="${esc(b.id)}">View</button>
-              ${isManager() && (b.status || "completed") === "completed" ? `<button class="btn red small cancel-batch" data-id="${esc(b.id)}">Cancel</button>` : ""}
+              ${isFullManager() && (b.status || "completed") === "completed" ? `<button class="btn red small cancel-batch" data-id="${esc(b.id)}">Cancel</button>` : ""}
             </td>
           </tr>`;
         }).join("") || '<tr><td colspan="8" class="muted">No production batches yet.</td></tr>'}
@@ -271,7 +271,7 @@ function validateRecipePayload(outputItemId, outputQty, outputUnit, lines) {
 }
 
 function openRecipeModal(recipe = null) {
-  if (!isManager()) return toast("Only managers can edit recipes.", "error");
+  if (!isFullManager()) return toast("Only full managers can edit recipes.", "error");
   const isEdit = !!recipe;
   const localInputs = isEdit
     ? recipeInputsFor(recipe.id).map(x => ({ ...x, qty: inputQty(x), qty_per_base: inputQty(x) }))
@@ -432,7 +432,7 @@ function openBatchModal(recipe = null) {
           <div id="mainInputWrap"><label>Main Input Used</label><input name="main_input_qty" id="mainInputQty" type="number" step="0.001" class="input"></div>
           <div><label>Actual Output Qty</label><input name="actual_output_qty" id="actualOutputQty" type="number" step="0.001" class="input"></div>
           <div><label>Waste/Loss Qty</label><input name="waste_qty" id="wasteQty" type="number" step="0.001" class="input" value="0"></div>
-          ${isManager() ? `<div><label><input type="checkbox" name="allow_negative" style="width:auto"> Allow negative stock override</label></div>` : ""}
+          ${isFullManager() ? `<div><label><input type="checkbox" name="allow_negative" style="width:auto"> Allow negative stock override</label></div>` : ""}
           <div class="full"><label>Notes</label><textarea name="notes" class="input" rows="2"></textarea></div>
         </div>
         <div id="batchPreview" style="margin-top:16px"></div>
@@ -550,7 +550,7 @@ function openBatchModal(recipe = null) {
     if (waste < 0) return toast("Waste cannot be negative.", "error");
 
     const shortages = lines.filter(x => Number(x.required_qty || 0) > stockQty(x.item_id));
-    const allowNegative = isManager() && fd.get("allow_negative") === "on";
+    const allowNegative = isFullManager() && fd.get("allow_negative") === "on";
     if (shortages.length && !allowNegative) {
       const x = shortages[0];
       return toast(`Not enough stock for ${itemLabel(x.item)}. Required ${qty(x.required_qty)} ${x.unit}, available ${qty(stockQty(x.item_id))} ${x.item?.stock_unit || ""}.`, "error");
@@ -695,7 +695,7 @@ function openBatchDetails(batch) {
 }
 
 function openCancelBatchModal(batch) {
-  if (!isManager()) return toast("Only managers can cancel production.", "error");
+  if (!isFullManager()) return toast("Only full managers can cancel production.", "error");
   if (!batch || batch.status === "cancelled") return;
   const moves = movementsForBatch(batch.id).filter(m => !String(m.notes || "").includes("Cancellation reversal"));
   openModal(`

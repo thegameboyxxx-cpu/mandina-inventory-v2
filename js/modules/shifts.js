@@ -1,4 +1,4 @@
-import { state, isManager } from "../state.js";
+import { state, isManager, canSeeFinancials } from "../state.js";
 import { $, esc, money, showError, toast, openModal, closeModal, today, dateKey, dateKeyInZone, businessDayForTimestamp, formatDateTimeMelbourne, formatTimeMelbourne, formatDuration } from "../utils.js";
 import { safeSelect, insertRow, updateRow } from "../services/db.js";
 
@@ -92,9 +92,9 @@ function renderShiftPlanner() {
     <div class="grid cards planner-summary" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:14px">
       <div class="card"><div class="stat-title">Branch</div><div><b>${esc(branchName(state.currentBranchId))}</b></div></div>
       <div class="card"><div class="stat-title">Planned</div><div><b>${planned.count}</b> shifts</div><small class="muted">${planned.hours.toFixed(2)} hours</small></div>
-      <div class="card"><div class="stat-title">Planned Cost</div><div><b>${money(planned.cost)}</b></div></div>
+      ${canSeeFinancials() ? `<div class="card"><div class="stat-title">Planned Cost</div><div><b>${money(planned.cost)}</b></div></div>` : ""}
       <div class="card"><div class="stat-title">Actual</div><div><b>${actual.count}</b> entries</div><small class="muted">${actual.hours.toFixed(2)} hours</small></div>
-      <div class="card"><div class="stat-title">Actual Cost</div><div><b>${money(actual.cost)}</b></div></div>
+      ${canSeeFinancials() ? `<div class="card"><div class="stat-title">Actual Cost</div><div><b>${money(actual.cost)}</b></div></div>` : ""}
     </div>
     ${warnings.length ? `<div class="errorbox">${warnings.map(esc).join("<br>")}</div>` : ""}
     <div class="shift-timeline-wrap">
@@ -140,8 +140,8 @@ function renderTimelineDay(day, dayShifts, range) {
       <div class="shift-day-label">
         <b>${esc(dayLabel(day))}</b>
         <span>${esc(day)}</span>
-        <small>Planned: ${planned.count} shifts / ${planned.hours.toFixed(2)}h / ${money(planned.cost)}</small>
-        <small>Actual: ${actual.count} entries / ${actual.hours.toFixed(2)}h / ${money(actual.cost)}</small>
+        <small>Planned: ${planned.count} shifts / ${planned.hours.toFixed(2)}h${canSeeFinancials() ? ` / ${money(planned.cost)}` : ""}</small>
+        <small>Actual: ${actual.count} entries / ${actual.hours.toFixed(2)}h${canSeeFinancials() ? ` / ${money(actual.cost)}` : ""}</small>
       </div>
       <div class="shift-time-lane">
         ${layout.items.map(item => {

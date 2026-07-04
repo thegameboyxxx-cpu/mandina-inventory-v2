@@ -1,4 +1,4 @@
-import { state, isManager } from "../state.js";
+import { state, isManager, canSeeFinancials } from "../state.js";
 import { $, esc, money, qty, showError, toast, openModal, closeModal, today, dateKey } from "../utils.js";
 import { safeSelect, insertRow, updateRow, deleteRows } from "../services/db.js";
 import { loyverseSync } from "../services/loyverse.js";
@@ -41,7 +41,7 @@ function yesterday() {
 function normalizeFilters() {
   if (!filters.from) filters.from = today();
   if (!filters.to) filters.to = today();
-  if (!isManager()) {
+  if (!canSeeFinancials()) {
     const allowed = new Set([today(), yesterday()]);
     const selected = allowed.has(filters.from) ? filters.from : today();
     filters.from = selected;
@@ -80,14 +80,15 @@ function cashStatus(count) {
 }
 
 function visibleAmount(report, reportLines = []) {
-  if (isManager()) {
+  if (canSeeFinancials()) {
+    if (filters.payment) return paymentAmount(report.payment_summary, filters.payment);
     return Number(report.total_sales_amount || reportLines.reduce((s, l) => s + Number(l.net_sales_amount || 0), 0));
   }
   return cashAmount(report);
 }
 
 function visiblePaymentSummary(report) {
-  if (isManager()) return report.payment_summary || "";
+  if (canSeeFinancials()) return report.payment_summary || "";
   const cash = cashAmount(report);
   return cash ? `Cash: ${cash.toFixed(2)}` : "Non-cash payment hidden";
 }
@@ -131,20 +132,20 @@ export async function renderSales() {
         <div class="section-head">
           <h2>Sales</h2>
           <div class="toolbar">
-            ${isManager() ? `<input id="salesFrom" class="input" type="date"><input id="salesTo" class="input" type="date">` : `<select id="salesStaffDateFilter"><option value="${today()}">Today</option><option value="${yesterday()}">Yesterday</option></select>`}
+            ${canSeeFinancials() ? `<input id="salesFrom" class="input" type="date"><input id="salesTo" class="input" type="date">` : `<select id="salesStaffDateFilter"><option value="${today()}">Today</option><option value="${yesterday()}">Yesterday</option></select>`}
             <input id="salesItemFilter" class="input" placeholder="Search item...">
             <select id="salesPaymentFilter"><option value="">All payment</option></select>
-            ${isManager() ? `<select id="salesSourceFilter"><option value="">All source</option><option value="manual">Manual</option><option value="loyverse">Loyverse</option></select>` : ""}
+            ${canSeeFinancials() ? `<select id="salesSourceFilter"><option value="">All source</option><option value="manual">Manual</option><option value="loyverse">Loyverse</option></select>` : ""}
             <button class="btn secondary" id="importLoyverseSalesBtn">Import Loyverse Sales</button>
             <button class="btn gold" id="cashCountBtn">Cash Count</button>
-            ${isManager() ? `<button class="btn green" id="processFilteredSalesBtn">Process All Shown</button><button class="btn" id="newSalesBtn">+ Manual Sales Entry</button>` : ""}
+            ${canSeeFinancials() ? `<button class="btn green" id="processFilteredSalesBtn">Process All Shown</button><button class="btn" id="newSalesBtn">+ Manual Sales Entry</button>` : ""}
           </div>
         </div>
         <div class="muted" style="margin-bottom:12px">Sales reports use Menu Item deduction mappings to create SALES_DEDUCTION stock movements when processed.</div>
         <div id="salesTable"></div>
       </div>
     `;
-    if (isManager()) {
+    if (canSeeFinancials()) {
       $("salesFrom").value = filters.from;
       $("salesTo").value = filters.to;
       $("salesFrom").onchange = e => { filters.from = e.target.value; renderSalesTable(); };
@@ -223,12 +224,12 @@ function renderSalesTable() {
     <div class="grid cards" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:14px">
       <div class="card"><div class="stat-title">Reports</div><div><b>${filteredReports.length}</b></div></div>
       <div class="card"><div class="stat-title">Items Sold</div><div><b>${qty(totalItems)}</b></div></div>
-      <div class="card"><div class="stat-title">${isManager() ? "Sales Amount" : "Cash Amount"}</div><div><b>${money(totalSales)}</b></div></div>
+      <div class="card"><div class="stat-title">${canSeeFinancials() ? (filters.payment ? `${filters.payment} Amount` : "Sales Amount") : "Cash Amount"}</div><div><b>${money(totalSales)}</b></div></div>
       <div class="card"><div class="stat-title">Cash Count</div><div><b>${cashStatus(currentCashCount)}</b></div><div class="muted">${esc(selectedCashDate)}</div></div>
     </div>
-    ${topItems.length ? `<div class="card" style="margin-bottom:14px"><div class="stat-title">Top Sold Items</div>${topItems.map(([name, data]) => `<div>${esc(name)}: <b>${qty(data.qty)}</b>${isManager() ? ` / ${money(data.sales)}` : ""}</div>`).join("")}</div>` : ""}
+    ${topItems.length ? `<div class="card" style="margin-bottom:14px"><div class="stat-title">Top Sold Items</div>${topItems.map(([name, data]) => `<div>${esc(name)}: <b>${qty(data.qty)}</b>${canSeeFinancials() ? ` / ${money(data.sales)}` : ""}</div>`).join("")}</div>` : ""}
     <table>
-      <thead><tr><th>Report</th><th>Date</th><th>Source</th><th>Lines</th><th>Items Sold</th><th>${isManager() ? "Sales Amount" : "Cash Amount"}</th><th>Status</th><th></th></tr></thead>
+      <thead><tr><th>Report</th><th>Date</th><th>Source</th><th>Lines</th><th>Items Sold</th><th>${canSeeFinancials() ? (filters.payment ? `${filters.payment} Amount` : "Sales Amount") : "Cash Amount"}</th><th>Status</th><th></th></tr></thead>
       <tbody>
         ${filteredReports.map(r => {
           const reportLines = linesFor(r.id);
@@ -242,7 +243,7 @@ function renderSalesTable() {
             <td><span class="badge ${r.status === "confirmed" ? "green" : "gold"}">${esc(r.status || "draft")}</span></td>
             <td>
               <button class="btn secondary small view-sales" data-id="${esc(r.id)}">View</button>
-              ${isManager() && r.status !== "confirmed" ? `<button class="btn green small process-sales" data-id="${esc(r.id)}">Process</button>` : ""}
+              ${canSeeFinancials() && r.status !== "confirmed" ? `<button class="btn green small process-sales" data-id="${esc(r.id)}">Process</button>` : ""}
             </td>
           </tr>`;
         }).join("") || '<tr><td colspan="8" class="muted">No sales reports yet.</td></tr>'}
@@ -268,7 +269,7 @@ function openCashCountModal() {
         <div class="form-grid">
           <div>
             <label>Count Date</label>
-            ${isManager() ? `<input name="count_date" id="cashCountDate" type="date" class="input" value="${esc(defaultDate)}" required>` : `<select name="count_date" id="cashCountDate">${allowedDateOptions}</select>`}
+            ${canSeeFinancials() ? `<input name="count_date" id="cashCountDate" type="date" class="input" value="${esc(defaultDate)}" required>` : `<select name="count_date" id="cashCountDate">${allowedDateOptions}</select>`}
           </div>
           <div><label>Expected Cash From Loyverse</label><input id="expectedCash" class="input" disabled></div>
           <div><label>Actual Cash In Register</label><input name="actual_cash" id="actualCash" type="number" step="0.01" class="input" value="${esc(existing?.actual_cash ?? "")}" required></div>
@@ -277,7 +278,7 @@ function openCashCountModal() {
           <div class="full"><label>Notes</label><textarea name="notes" class="input" rows="2">${esc(existing?.notes || "")}</textarea></div>
         </div>
         <div class="muted" style="margin-top:12px">Expected cash is calculated from imported Loyverse receipts for the selected branch and date.</div>
-        ${isManager() ? renderCashCountsList() : ""}
+        ${canSeeFinancials() ? renderCashCountsList() : ""}
       </div>
       <div class="modal-foot"><button type="button" class="btn secondary" onclick="closeModal()">Cancel</button><button class="btn">Save Count</button></div>
     </form>
@@ -307,7 +308,7 @@ function openCashCountModal() {
     e.preventDefault();
     const fd = new FormData(e.target);
     const countDate = String(fd.get("count_date"));
-    if (!isManager() && ![today(), yesterday()].includes(countDate)) return toast("Staff can only count today or yesterday.", "error");
+    if (!canSeeFinancials() && ![today(), yesterday()].includes(countDate)) return toast("Staff can only count today or yesterday.", "error");
     const expected = Number(expectedCashForDate(countDate).toFixed(2));
     const actual = Number(Number(fd.get("actual_cash") || 0).toFixed(2));
     const difference = Number((actual - expected).toFixed(2));
@@ -370,10 +371,10 @@ function openLoyverseSalesImportModal() {
     <form id="loyverseSalesImportForm">
       <div class="modal-body">
         <div class="form-grid">
-          ${isManager()
+          ${canSeeFinancials()
             ? `<div><label>From</label><input name="from" type="date" class="input" value="${filters.from || today()}" required></div><div><label>To</label><input name="to" type="date" class="input" value="${filters.to || today()}" required></div>`
             : `<div class="full"><label>Import Date</label><select name="staff_date"><option value="${today()}" ${filters.from === today() ? "selected" : ""}>Today</option><option value="${yesterday()}" ${filters.from === yesterday() ? "selected" : ""}>Yesterday</option></select></div>`}
-          ${isManager() ? `<div class="full"><label>Loyverse Token Override</label><input name="token" type="password" class="input" autocomplete="off"><div class="muted">Optional. Leave blank to use the token saved for this branch.</div></div>` : ""}
+          ${canSeeFinancials() ? `<div class="full"><label>Loyverse Token Override</label><input name="token" type="password" class="input" autocomplete="off"><div class="muted">Optional. Leave blank to use the token saved for this branch.</div></div>` : ""}
         </div>
         <div class="muted" style="margin-top:10px">
           Receipts import as draft reports. Processing is separate so stock is deducted only after mappings are checked.
@@ -392,8 +393,8 @@ function openLoyverseSalesImportModal() {
     const fd = new FormData(e.target);
     const token = fd.get("token") || "";
     const staffDate = fd.get("staff_date");
-    const from = isManager() ? fd.get("from") : staffDate;
-    const to = isManager() ? fd.get("to") : staffDate;
+    const from = canSeeFinancials() ? fd.get("from") : staffDate;
+    const to = canSeeFinancials() ? fd.get("to") : staffDate;
     if (to < from) return toast("To date must be after From date.", "error");
     $("loyverseSalesImportStatus").textContent = "Reading receipts from Loyverse...";
     try {
@@ -423,28 +424,28 @@ function openSalesDetails(report) {
         <div class="card"><div class="stat-title">Date</div><div><b>${esc((report.report_date || "").slice(0, 10))}</b></div></div>
         <div class="card"><div class="stat-title">Source</div><div><b>${esc(report.source || "manual")}</b></div></div>
         <div class="card"><div class="stat-title">Items Sold</div><div><b>${qty(report.total_items_sold || 0)}</b></div></div>
-        <div class="card"><div class="stat-title">Sales</div><div><b>${money(report.total_sales_amount || 0)}</b></div></div>
+        <div class="card"><div class="stat-title">${canSeeFinancials() ? "Sales" : "Cash"}</div><div><b>${money(visibleAmount(report, reportLines))}</b></div></div>
       </div>
       <div class="form-grid" style="margin-bottom:14px">
         <div><label>Receipt</label><input class="input" value="${esc(reportNo(report))}" disabled></div>
-        <div><label>Payment</label><input class="input" value="${esc(report.payment_summary || "")}" disabled></div>
+        <div><label>Payment</label><input class="input" value="${esc(visiblePaymentSummary(report))}" disabled></div>
         <div><label>Status</label><input class="input" value="${esc(report.status || "draft")}" disabled></div>
         <div><label>Dining Option</label><input class="input" value="${esc(report.dining_option || "")}" disabled></div>
         <div class="full"><label>Notes</label><textarea class="input" rows="2" disabled>${esc(report.notes || "")}</textarea></div>
       </div>
       <table>
-        <thead><tr><th>Item</th><th>Qty</th>${isManager() ? "<th>Price</th><th>Total</th>" : ""}<th>Mapping</th><th>Note</th></tr></thead>
+        <thead><tr><th>Item</th><th>Qty</th>${canSeeFinancials() ? "<th>Price</th><th>Total</th>" : ""}<th>Mapping</th><th>Note</th></tr></thead>
         <tbody>
           ${reportLines.map(line => {
             const mi = menuItems.find(m => m.id === line.menu_item_id);
             return `<tr>
               <td>${esc(line.pos_item_name || menuName(mi))}</td>
               <td>${qty(line.qty_sold || 0)}</td>
-              ${isManager() ? `<td>${money(line.unit_price || 0)}</td><td>${money(line.net_sales_amount || 0)}</td>` : ""}
+              ${canSeeFinancials() ? `<td>${money(line.unit_price || 0)}</td><td>${money(line.net_sales_amount || 0)}</td>` : ""}
               <td>${mi ? `<span class="badge green">${esc(menuName(mi))}</span>` : '<span class="badge red">Not mapped</span>'}</td>
               <td>${esc(line.notes || "")}</td>
             </tr>`;
-          }).join("") || `<tr><td colspan="${isManager() ? 6 : 4}" class="muted">No lines.</td></tr>`}
+          }).join("") || `<tr><td colspan="${canSeeFinancials() ? 6 : 4}" class="muted">No lines.</td></tr>`}
         </tbody>
       </table>
     </div>

@@ -1,4 +1,4 @@
-import { state, isManager } from "../state.js";
+import { state, canViewPayroll } from "../state.js";
 import { $, esc, money, showError, toast, today, dateKey, openModal, closeModal, businessDayForTimestamp, formatDateTimeMelbourne, formatDuration } from "../utils.js";
 import { safeSelect, insertRow, updateRow } from "../services/db.js";
 
@@ -41,8 +41,8 @@ async function loadPayrollData() {
 
 export async function renderPayroll() {
   const content = $("content");
-  if (!isManager()) {
-    content.innerHTML = showError("Manager access required.");
+  if (!canViewPayroll()) {
+    content.innerHTML = showError("Full manager access required.");
     return;
   }
   content.innerHTML = '<div class="card">Loading payroll...</div>';

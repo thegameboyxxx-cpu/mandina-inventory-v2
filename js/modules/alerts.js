@@ -1,4 +1,4 @@
-import { state, isManager } from "../state.js";
+import { state, isFullManager } from "../state.js";
 import { $, esc, money, qty, showError, toast, openModal, closeModal, today, dateShift, formatDateTimeMelbourne } from "../utils.js";
 import { safeSelect, insertRow, updateRow } from "../services/db.js";
 import { loadItemDeps, loadItems } from "./items.js";
@@ -51,8 +51,8 @@ async function loadAlertData() {
 
 export async function renderAlerts() {
   const content = $("content");
-  if (!isManager()) {
-    content.innerHTML = showError("Manager access required.");
+  if (!isFullManager()) {
+    content.innerHTML = showError("Full manager access required.");
     return;
   }
   content.innerHTML = '<div class="card">Loading alerts...</div>';

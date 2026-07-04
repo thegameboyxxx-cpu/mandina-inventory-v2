@@ -6,7 +6,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const FUNCTION_VERSION = "2026-07-05.4";
+const FUNCTION_VERSION = "2026-07-05.6";
 
 function json(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify({ function_version: FUNCTION_VERSION, ...body }), {
@@ -130,12 +130,13 @@ serve(async req => {
     step = "loading manager profile";
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select("role, active")
+      .select("role, active, login_type")
       .eq("id", userData.user.id)
       .maybeSingle();
     if (profileError) throw profileError;
-    if (String(profile?.role || "").toLowerCase() !== "manager" || profile?.active === false) {
-      return json({ error: "Manager access required." }, 403);
+    const isFullManager = String(profile?.role || "").toLowerCase() === "manager" && profile?.login_type !== "employee_number";
+    if (!isFullManager || profile?.active === false) {
+      return json({ error: "Full manager access required." }, 403);
     }
 
     step = "reading request body";
@@ -146,6 +147,9 @@ serve(async req => {
       step = "validating create employee login request";
       const employeeId = String(body.employee_id || "");
       const password = String(body.password || "");
+      const role = ["staff", "branch_manager", "manager"].includes(String(body.role || ""))
+        ? String(body.role)
+        : "staff";
       const branchIds = Array.isArray(body.branch_ids)
         ? (body.branch_ids as unknown[]).map(value => String(value || "")).filter(Boolean)
         : [];
@@ -215,7 +219,7 @@ serve(async req => {
         id: authUser.id,
         full_name: employee.full_name,
         email,
-        role: "staff",
+        role,
         login_type: "employee_number",
         employee_id: employee.id,
         employee_number: employee.employee_number,

@@ -1,4 +1,4 @@
-import { state, isManager } from "../state.js";
+import { state, canManageUsers } from "../state.js";
 import { $, esc, showError, toast, openModal, closeModal } from "../utils.js";
 import { safeSelect, insertRow, updateRow } from "../services/db.js";
 import { callFunction } from "../services/functions.js";
@@ -27,7 +27,7 @@ async function loadUsersData() {
 
 export async function renderUsers() {
   const content = $("content");
-  if (!isManager()) {
+  if (!canManageUsers()) {
     content.innerHTML = showError("Manager access required.");
     return;
   }
@@ -133,6 +133,7 @@ function openEmployeeLoginModal() {
           <div class="full"><label>Employee</label><select name="employee_id" id="loginEmployeeId" required>${employeeOptions()}</select></div>
           <div><label>Employee Number</label><input id="loginEmployeeNumber" class="input" disabled></div>
           <div><label>Branch</label><input id="loginEmployeeBranch" class="input" disabled></div>
+          <div><label>Access Role</label><select name="role"><option value="staff">Staff</option><option value="branch_manager">Branch Manager</option><option value="manager">Employee Manager</option></select></div>
           <div><label>Password</label><input name="password" type="password" class="input" required minlength="4" inputmode="numeric" pattern="[0-9]{4,}"><div class="muted">Minimum 4 digits.</div></div>
           <div><label>Confirm Password</label><input name="confirm_password" type="password" class="input" required minlength="4" inputmode="numeric" pattern="[0-9]{4,}"></div>
           <div class="full"><label>Branch Access</label><div class="card" style="margin-top:6px">${branchChecks([state.currentBranchId])}</div></div>
@@ -158,17 +159,18 @@ function openEmployeeLoginModal() {
     const branchIds = formBranchIds(fd);
     if (!branchIds.length) return toast("Select at least one branch.", "error");
     if (password !== String(fd.get("confirm_password") || "")) return toast("Passwords do not match.", "error");
-    await createEmployeeAuthUser(e, password, branchIds);
+    await createEmployeeAuthUser(e, password, branchIds, fd.get("role") || "staff");
   };
 }
 
-async function createEmployeeAuthUser(employeeRow, password, branchIds) {
+async function createEmployeeAuthUser(employeeRow, password, branchIds, role) {
   try {
     await callFunction("user-admin", {
       action: "create-employee-login",
       employee_id: employeeRow.id,
       password,
       branch_ids: branchIds,
+      role,
     });
     toast(`Login created for employee #${employeeRow.employee_number}.`, "ok");
     closeModal();
@@ -187,7 +189,7 @@ function openGoogleManagerModal() {
           <div><label>Email</label><input name="email" type="email" class="input" required></div>
           <div><label>Full Name</label><input name="full_name" class="input"></div>
           <div class="full"><label>Branch Access</label><div class="card" style="margin-top:6px">${branchChecks([state.currentBranchId])}</div></div>
-          <div><label>Role</label><select name="role"><option value="manager">Manager</option><option value="staff">Staff</option></select></div>
+          <div><label>Role</label><select name="role"><option value="manager">Full Manager</option><option value="branch_manager">Branch Manager</option><option value="staff">Staff</option></select></div>
         </div>
         <div class="muted" style="margin-top:12px">After this, the manager can use Manager Login with Google using this email.</div>
       </div>
@@ -226,7 +228,7 @@ function openUserEditModal(profile) {
       <div class="modal-body">
         <div class="form-grid">
           <div><label>Name</label><input name="full_name" class="input" value="${esc(profile.full_name || "")}"></div>
-          <div><label>Role</label><select name="role"><option value="staff" ${profile.role !== "manager" ? "selected" : ""}>Staff</option><option value="manager" ${profile.role === "manager" ? "selected" : ""}>Manager</option></select></div>
+          <div><label>Role</label><select name="role"><option value="staff" ${profile.role === "staff" ? "selected" : ""}>Staff</option><option value="branch_manager" ${profile.role === "branch_manager" ? "selected" : ""}>Branch Manager</option><option value="manager" ${profile.role === "manager" ? "selected" : ""}>Full Manager</option></select></div>
           <div class="full"><label>Branch Access</label><div class="card" style="margin-top:6px">${branchChecks(branchAccess(profile).length ? branchAccess(profile) : [state.currentBranchId])}</div></div>
           <div><label>Status</label><select name="active"><option value="true" ${profile.active !== false ? "selected" : ""}>Active</option><option value="false" ${profile.active === false ? "selected" : ""}>Inactive</option></select></div>
           <div class="full"><label>Linked Employee</label><select name="employee_id">${employeeOptions(profile.employee_id || "")}</select></div>

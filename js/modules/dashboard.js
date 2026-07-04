@@ -1,4 +1,4 @@
-import { state, isManager } from "../state.js";
+import { state, isManager, isFullManager, canSeeFinancials } from "../state.js";
 import { $, esc, money, qty, showError, today } from "../utils.js";
 import { safeSelect } from "../services/db.js";
 import { dashboardAlertSummary } from "./alerts.js";
@@ -7,8 +7,11 @@ export async function renderDashboard() {
   const content = $("content");
   content.innerHTML = '<div class="card">Loading dashboard...</div>';
   try {
+    if (!isManager()) {
+      return renderStaffDashboard(content);
+    }
     const [summary, ops] = await Promise.all([
-      isManager() ? dashboardAlertSummary().catch(() => null) : Promise.resolve(null),
+      isFullManager() ? dashboardAlertSummary().catch(() => null) : Promise.resolve(null),
       loadOperationalSummary(),
     ]);
 
@@ -18,11 +21,11 @@ export async function renderDashboard() {
         <div class="card"><div class="stat-title">Critical Alerts</div><div class="stat-value">${summary?.criticalAlerts ?? "-"}</div></div>
         <div class="card"><div class="stat-title">Low Stock</div><div class="stat-value">${summary?.lowStock ?? ops.lowStock}</div></div>
         <div class="card"><div class="stat-title">Clocked In</div><div class="stat-value">${ops.clockedIn}</div></div>
-        <div class="card"><div class="stat-title">Waste Today</div><div class="stat-value">${money(ops.wasteToday)}</div></div>
-        <div class="card"><div class="stat-title">Cash Issues</div><div class="stat-value">${summary?.cashIssues ?? ops.cashIssues}</div></div>
+        ${canSeeFinancials() ? `<div class="card"><div class="stat-title">Waste Today</div><div class="stat-value">${money(ops.wasteToday)}</div></div>` : ""}
+        ${isManager() ? `<div class="card"><div class="stat-title">Cash Issues</div><div class="stat-value">${summary?.cashIssues ?? ops.cashIssues}</div></div>` : ""}
       </div>
 
-      ${isManager() ? renderAlertPanel(summary) : ""}
+      ${isFullManager() ? renderAlertPanel(summary) : ""}
 
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px">
         <div class="card">
@@ -33,7 +36,7 @@ export async function renderDashboard() {
               <tr><th>Production Today</th><td>${ops.productionToday}</td></tr>
               <tr><th>Daily Counts Pending</th><td>${ops.countsPending}</td></tr>
               <tr><th>Staff Meals Pending</th><td>${ops.staffMealsPending}</td></tr>
-              <tr><th>Payroll Due</th><td>${money(ops.payrollDue)}</td></tr>
+              ${canSeeFinancials() ? `<tr><th>Payroll Due</th><td>${money(ops.payrollDue)}</td></tr>` : ""}
             </tbody>
           </table>
         </div>
@@ -41,8 +44,8 @@ export async function renderDashboard() {
         <div class="card">
           <div class="section-head"><h2>Quick Actions</h2></div>
           <div class="toolbar" style="gap:8px;align-items:stretch">
-            ${quickButton("alerts", "Alerts")}
-            ${quickButton("purchase", "New PO")}
+            ${isFullManager() ? quickButton("alerts", "Alerts") : ""}
+            ${isFullManager() ? quickButton("purchase", "New PO") : ""}
             ${quickButton("receiving", "Receive")}
             ${quickButton("production", "Production")}
             ${quickButton("counts", "Daily Count")}
@@ -58,6 +61,31 @@ export async function renderDashboard() {
   } catch (err) {
     content.innerHTML = showError("Could not load dashboard. " + err.message);
   }
+}
+
+async function renderStaffDashboard(content) {
+  const employeeId = state.profile?.employee_id;
+  const rows = employeeId
+    ? await safeSelect("time_entries", "*", { eq: { branch_id: state.currentBranchId, employee_id: employeeId }, order: "created_at", ascending: false }).catch(() => [])
+    : [];
+  const latest = rows[0];
+  content.innerHTML = `
+    <div class="grid cards" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:16px">
+      <div class="card"><div class="stat-title">Clock Status</div><div><b>${esc(latest?.status === "clocked_in" ? "Clocked In" : "Clocked Out")}</b></div></div>
+      <div class="card"><div class="stat-title">Last Clock In</div><div><b>${esc(latest?.clock_in_at ? String(latest.clock_in_at).slice(0, 16).replace("T", " ") : "-")}</b></div></div>
+      <div class="card"><div class="stat-title">Last Clock Out</div><div><b>${esc(latest?.clock_out_at ? String(latest.clock_out_at).slice(0, 16).replace("T", " ") : "-")}</b></div></div>
+    </div>
+    <div class="card">
+      <div class="section-head"><h2>Today</h2></div>
+      <div class="toolbar">
+        ${quickButton("timeclock", "Time Clock")}
+        ${quickButton("staffmeal", "Staff Meal")}
+      </div>
+    </div>
+  `;
+  document.querySelectorAll("[data-dashboard-page]").forEach(btn => {
+    btn.onclick = () => document.querySelector(`#nav button[data-page="${CSS.escape(btn.dataset.dashboardPage)}"]`)?.click();
+  });
 }
 
 function renderAlertPanel(summary) {

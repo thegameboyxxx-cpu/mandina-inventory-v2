@@ -1,4 +1,4 @@
-import { state } from "../state.js";
+import { state, canSeeFinancials } from "../state.js";
 import { $, esc, money, qty, showError, toast, openModal, closeModal } from "../utils.js";
 import { safeSelect, insertRow } from "../services/db.js";
 import { loadItems, loadItemDeps } from "./items.js";
@@ -100,8 +100,8 @@ function statusBadge(status){ const s=status||"approved"; const cls=s==="approve
 function renderTables(){
   const q=filters.search.toLowerCase();
   const rows=poList.filter(po=>(!filters.supplier_id||po.supplier_id===filters.supplier_id)&&JSON.stringify(po).toLowerCase().includes(q));
-  $("receivingTable").innerHTML=`<table><thead><tr><th>PO</th><th>Branch</th><th>PO Date</th><th>Supplier</th><th>Status</th><th>Total</th><th></th></tr></thead><tbody>
-  ${rows.map(po=>`<tr><td><b>${esc(poNo(po))}</b></td><td>${esc(branchName())}</td><td>${esc(po.order_date||(po.created_at||"").slice(0,10))}</td><td>${esc(supplierName(supplier(po.supplier_id)))}</td><td>${statusBadge(po.status)}</td><td>${money(po.total_amount)}</td><td><button class="btn small receive-po" data-id="${esc(po.id)}">Receive</button></td></tr>`).join("")||'<tr><td colspan="7" class="muted">No approved purchase orders ready for receiving.</td></tr>'}</tbody></table>`;
+  $("receivingTable").innerHTML=`<table><thead><tr><th>PO</th><th>Branch</th><th>PO Date</th><th>Supplier</th><th>Status</th>${canSeeFinancials() ? "<th>Total</th>" : ""}<th></th></tr></thead><tbody>
+  ${rows.map(po=>`<tr><td><b>${esc(poNo(po))}</b></td><td>${esc(branchName())}</td><td>${esc(po.order_date||(po.created_at||"").slice(0,10))}</td><td>${esc(supplierName(supplier(po.supplier_id)))}</td><td>${statusBadge(po.status)}</td>${canSeeFinancials() ? `<td>${money(po.total_amount)}</td>` : ""}<td><button class="btn small receive-po" data-id="${esc(po.id)}">Receive</button></td></tr>`).join("")||`<tr><td colspan="${canSeeFinancials() ? 7 : 6}" class="muted">No approved purchase orders ready for receiving.</td></tr>`}</tbody></table>`;
   document.querySelectorAll(".receive-po").forEach(btn=>btn.onclick=()=>openReceivingModal(poList.find(po=>po.id===btn.dataset.id)));
   renderRecentNotes();
 }
@@ -171,9 +171,11 @@ function renderRecentNotes(){
   const total=rows.reduce((a,n)=>a+Number(n.total_amount||0),0);
   const paid=rows.reduce((a,n)=>a+Number(n.paid_amount||0),0);
   const outstanding=rows.reduce((a,n)=>a+unpaidAmount(n),0);
-  $("rnSummary").innerHTML=`Notes: <b>${rows.length}</b> | Total Received: <b>${money(total)}</b> | Paid: <b>${money(paid)}</b> | Outstanding Payable: <b>${money(outstanding)}</b>`;
+  $("rnSummary").innerHTML=canSeeFinancials()
+    ? `Notes: <b>${rows.length}</b> | Total Received: <b>${money(total)}</b> | Paid: <b>${money(paid)}</b> | Outstanding Payable: <b>${money(outstanding)}</b>`
+    : `Notes: <b>${rows.length}</b>`;
 
-  $("recentReceiving").innerHTML=`<table><thead><tr><th>RN</th><th>Purchase Order</th><th>Supplier</th><th>Date</th><th>Delivery Status</th><th>Total</th><th>Paid</th><th>Payment</th><th></th></tr></thead><tbody>
+  $("recentReceiving").innerHTML=`<table><thead><tr><th>RN</th><th>Purchase Order</th><th>Supplier</th><th>Date</th><th>Delivery Status</th>${canSeeFinancials() ? "<th>Total</th><th>Paid</th><th>Payment</th>" : ""}<th></th></tr></thead><tbody>
   ${rows.map(rn=>{
     const po=notePo(rn);
     const ds=deliveryStatusForNote(rn);
@@ -183,18 +185,18 @@ function renderRecentNotes(){
       <td>${esc(supplierName(supplier(rn.supplier_id||po.supplier_id)))}</td>
       <td>${esc((rn.received_date||rn.received_at||rn.created_at||"").slice(0,10))}</td>
       <td><span class="badge ${esc(ds.badge)}">${esc(ds.label)}</span><div class="muted">${esc(ds.text)}</div></td>
-      <td>${money(rn.total_amount)}</td>
-      <td>${money(rn.paid_amount||0)}</td>
-      <td>${paymentBadge(rn)}</td>
-      <td><button class="btn secondary small open-rn" data-id="${esc(rn.id)}">Open</button><button class="btn secondary small pay-rn" data-id="${esc(rn.id)}">Pay</button><button class="btn secondary small copy-rn" data-id="${esc(rn.id)}">Copy</button><button class="btn secondary small pdf-rn" data-id="${esc(rn.id)}">PDF</button><button class="btn secondary small email-rn" data-id="${esc(rn.id)}">Email</button></td>
+      ${canSeeFinancials() ? `<td>${money(rn.total_amount)}</td><td>${money(rn.paid_amount||0)}</td><td>${paymentBadge(rn)}</td>` : ""}
+      <td><button class="btn secondary small open-rn" data-id="${esc(rn.id)}">Open</button>${canSeeFinancials() ? `<button class="btn secondary small pay-rn" data-id="${esc(rn.id)}">Pay</button><button class="btn secondary small copy-rn" data-id="${esc(rn.id)}">Copy</button><button class="btn secondary small pdf-rn" data-id="${esc(rn.id)}">PDF</button><button class="btn secondary small email-rn" data-id="${esc(rn.id)}">Email</button>` : ""}</td>
     </tr>`;
-  }).join("")||'<tr><td colspan="9" class="muted">No receiving notes found.</td></tr>'}</tbody></table>`;
+  }).join("")||`<tr><td colspan="${canSeeFinancials() ? 9 : 6}" class="muted">No receiving notes found.</td></tr>`}</tbody></table>`;
 
-  document.querySelectorAll(".copy-rn").forEach(btn=>btn.onclick=()=>copyReceivingNote(receivingNotes.find(rn=>rn.id===btn.dataset.id)));
   document.querySelectorAll(".open-rn").forEach(btn=>btn.onclick=()=>openReceivingNote(receivingNotes.find(rn=>rn.id===btn.dataset.id)));
-  document.querySelectorAll(".pdf-rn").forEach(btn=>btn.onclick=()=>printReceivingNote(receivingNotes.find(rn=>rn.id===btn.dataset.id)));
-  document.querySelectorAll(".email-rn").forEach(btn=>btn.onclick=()=>emailReceivingNote(receivingNotes.find(rn=>rn.id===btn.dataset.id)));
-  document.querySelectorAll(".pay-rn").forEach(btn=>btn.onclick=()=>openPaymentModal(receivingNotes.find(rn=>rn.id===btn.dataset.id)));
+  if(canSeeFinancials()){
+    document.querySelectorAll(".copy-rn").forEach(btn=>btn.onclick=()=>copyReceivingNote(receivingNotes.find(rn=>rn.id===btn.dataset.id)));
+    document.querySelectorAll(".pdf-rn").forEach(btn=>btn.onclick=()=>printReceivingNote(receivingNotes.find(rn=>rn.id===btn.dataset.id)));
+    document.querySelectorAll(".email-rn").forEach(btn=>btn.onclick=()=>emailReceivingNote(receivingNotes.find(rn=>rn.id===btn.dataset.id)));
+    document.querySelectorAll(".pay-rn").forEach(btn=>btn.onclick=()=>openPaymentModal(receivingNotes.find(rn=>rn.id===btn.dataset.id)));
+  }
 }
 
 async function getPoLines(poId){
@@ -248,7 +250,7 @@ async function openReceivingModal(po){
         <div class="full"><label>Receiving Notes</label><textarea name="notes" class="input" rows="2"></textarea></div>
       </div>
       <div style="margin-top:16px" id="receivingLinesBox"></div>
-      <div style="text-align:right;font-weight:900;font-size:20px;margin-top:14px">Receiving Total: <span id="receivingTotal">$0.00</span></div>
+      ${canSeeFinancials() ? `<div style="text-align:right;font-weight:900;font-size:20px;margin-top:14px">Receiving Total: <span id="receivingTotal">$0.00</span></div>` : ""}
     </div>
     <div class="modal-foot">
       <button type="button" class="btn secondary" onclick="closeModal()">Cancel</button>
@@ -276,7 +278,7 @@ async function openReceivingModal(po){
           <th>Rejected${help("Rejected quantity in receiving unit.")}</th>
           ${anyCost ? `<th>Billing Qty${help("Invoice quantity. Example: meat pieces billed by kg.")}</th>` : ""}
           <th>Stock Add${help("How much will be added to stock unit.")}</th>
-          <th>Total${help("Uses billing qty when billing unit differs.")}</th>
+          ${canSeeFinancials() ? `<th>Total${help("Uses billing qty when billing unit differs.")}</th>` : ""}
           <th>Reject Reason</th>
         </tr>
       </thead>
@@ -294,7 +296,7 @@ async function openReceivingModal(po){
             <td><input type="number" step="0.001" class="input rejected-input" data-index="${index}" value="${esc(line.rejected_qty)}"></td>
             ${anyCost ? `<td>${needs ? `<input type="number" step="0.001" class="input costqty-input" data-index="${index}" value="${esc(line.actual_cost_qty??"")}" placeholder="Enter ${esc(line.cost_unit)}">` : '<span class="muted">Auto</span>'}</td>` : ""}
             <td class="stock-add">${qty(stockQtyFromLine(line))} ${esc(line.stock_unit)}</td>
-            <td class="line-total">${money(lineTotalFromLocal(line))}</td>
+            ${canSeeFinancials() ? `<td class="line-total">${money(lineTotalFromLocal(line))}</td>` : ""}
             <td><input class="input reason-input" data-index="${index}" value="${esc(line.reject_reason||"")}" placeholder="Reason"></td>
           </tr>`;
         }).join("")}
@@ -314,7 +316,7 @@ async function openReceivingModal(po){
       if(stockCell) stockCell.textContent = `${qty(stockQtyFromLine(line))} ${line.stock_unit || ""}`;
     });
 
-    $("receivingTotal").textContent = money(calculateTotal());
+    if($("receivingTotal")) $("receivingTotal").textContent = money(calculateTotal());
   }
 
   function bindLineInputs(){
@@ -577,37 +579,39 @@ function openReceivingNote(note){
 
   openModal(`<div class="modal-head"><h3>Receiving Note ${esc(rnNo(note))}</h3><button class="btn secondary small" onclick="closeModal()">✕</button></div>
   <div class="modal-body">
-    <div class="grid cards" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:14px">
+    <div class="grid cards" style="grid-template-columns:repeat(${canSeeFinancials() ? 4 : 2},minmax(0,1fr));margin-bottom:14px">
       <div class="card"><div class="stat-title">Branch</div><div><b>${esc(branchName())}</b></div></div>
       <div class="card"><div class="stat-title">Supplier</div><div><b>${esc(supplierName(supplier(note.supplier_id)))}</b></div></div>
-      <div class="card"><div class="stat-title">Payment</div><div><b>${esc(note.payment_status||"unpaid")}</b><br>${money(note.paid_amount||0)} paid</div></div>
-      <div class="card"><div class="stat-title">Outstanding</div><div><b>${money(unpaidAmount(note))}</b></div></div>
+      ${canSeeFinancials() ? `<div class="card"><div class="stat-title">Payment</div><div><b>${esc(note.payment_status||"unpaid")}</b><br>${money(note.paid_amount||0)} paid</div></div>
+      <div class="card"><div class="stat-title">Outstanding</div><div><b>${money(unpaidAmount(note))}</b></div></div>` : ""}
     </div>
     <table>
-      <thead><tr><th>Item</th><th>Delivered</th><th>Accepted</th><th>Rejected</th><th>Billing</th><th>Total</th><th>Reason</th></tr></thead>
+      <thead><tr><th>Item</th><th>Delivered</th><th>Accepted</th><th>Rejected</th>${canSeeFinancials() ? "<th>Billing</th><th>Total</th>" : ""}<th>Reason</th></tr></thead>
       <tbody>${lines.map(l=>`<tr>
         <td>${esc(itemLabel(item(l.item_id)))}</td>
         <td>${qty(l.delivered_qty||l.received_qty)} ${esc(l.receive_unit||l.order_unit||"")}</td>
         <td>${qty(l.accepted_qty)}</td>
         <td>${qty(l.rejected_qty||0)}</td>
-        <td>${l.secondary_qty?`${qty(l.secondary_qty)} ${esc(l.secondary_unit||l.cost_unit||"")}`:(l.cost_qty?`${qty(l.cost_qty)} ${esc(l.cost_unit||"")}`:"Auto")}</td>
-        <td>${money(receivedLineValue(l))}</td>
+        ${canSeeFinancials() ? `<td>${l.secondary_qty?`${qty(l.secondary_qty)} ${esc(l.secondary_unit||l.cost_unit||"")}`:(l.cost_qty?`${qty(l.cost_qty)} ${esc(l.cost_unit||"")}`:"Auto")}</td>
+        <td>${money(receivedLineValue(l))}</td>` : ""}
         <td>${esc(l.rejection_reason||l.reject_reason||"")}</td>
       </tr>`).join("")}</tbody>
     </table>
   </div>
   <div class="modal-foot">
     <button class="btn secondary" onclick="closeModal()">Close</button>
-    <button class="btn" id="copyOpenRn">Copy</button>
+    ${canSeeFinancials() ? `<button class="btn" id="copyOpenRn">Copy</button>
     <button class="btn secondary" id="pdfOpenRn">PDF</button>
     <button class="btn secondary" id="emailOpenRn">Email</button>
-    <button class="btn green" id="payOpenRn">Pay</button>
+    <button class="btn green" id="payOpenRn">Pay</button>` : ""}
   </div>`);
 
-  $("copyOpenRn").onclick = ()=>copyReceivingNote(note);
-  $("pdfOpenRn").onclick = ()=>printReceivingNote(note);
-  $("emailOpenRn").onclick = ()=>emailReceivingNote(note);
-  $("payOpenRn").onclick = ()=>openPaymentModal(note);
+  if(canSeeFinancials()){
+    $("copyOpenRn").onclick = ()=>copyReceivingNote(note);
+    $("pdfOpenRn").onclick = ()=>printReceivingNote(note);
+    $("emailOpenRn").onclick = ()=>emailReceivingNote(note);
+    $("payOpenRn").onclick = ()=>openPaymentModal(note);
+  }
 }
 
 function openPaymentModal(note){

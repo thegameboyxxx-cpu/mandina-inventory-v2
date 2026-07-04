@@ -1,4 +1,4 @@
-import { state, isManager } from "../state.js";
+import { state, canManagePurchasing } from "../state.js";
 import { $, esc, money, qty, showError, toast, openModal, closeModal } from "../utils.js";
 import { safeSelect, insertRow, updateRow, deleteRows } from "../services/db.js";
 import { loadItems, loadItemDeps } from "./items.js";
@@ -100,7 +100,7 @@ async function loadPurchaseData(){
 }
 
 export async function renderPurchaseOrders(){
-  if(!isManager()) return $("content").innerHTML = showError("Staff users cannot access Purchase Orders.");
+  if(!canManagePurchasing()) return $("content").innerHTML = showError("Full manager access required.");
   const content = $("content");
   content.innerHTML = `<div class="card">Loading purchase orders...</div>`;
   try{

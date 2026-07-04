@@ -1,4 +1,4 @@
-import { state, isManager } from "../state.js";
+import { state, canManagePurchasing } from "../state.js";
 import { $, esc, showError, toast, openModal, closeModal } from "../utils.js";
 import { unitSelect } from "../units.js";
 import { loadItemDeps, loadItems } from "./items.js";
@@ -14,7 +14,7 @@ const productionKind = item => item?.production_kind || "food_production";
 const productionKindLabel = value => value === "fill_up" ? "Fill Up" : "Food Production";
 
 export async function renderProducedItems() {
-  if (!isManager()) return $("content").innerHTML = showError("Staff users cannot access Produced Items.");
+  if (!canManagePurchasing()) return $("content").innerHTML = showError("Full manager access required.");
 
   const content = $("content");
   content.innerHTML = '<div class="card">Loading produced items...</div>';

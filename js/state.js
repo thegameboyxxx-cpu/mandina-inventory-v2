@@ -1,1 +1,9 @@
-export const state={db:null,user:null,profile:null,role:"staff",branches:[],allowedBranchIds:[],currentBranchId:localStorage.getItem("mandina_branch")||"carlton",page:"dashboard",suppliers:[],categories:[],items:[],purchaseOrders:[]};export const isManager=()=>state.role==="manager";export const canSwitchBranches=()=>state.allowedBranchIds.length!==1;
+export const state={db:null,user:null,profile:null,role:"staff",branches:[],allowedBranchIds:[],currentBranchId:localStorage.getItem("mandina_branch")||"carlton",page:"dashboard",suppliers:[],categories:[],items:[],purchaseOrders:[]};
+export const isEmployeeLogin=()=>state.profile?.login_type==="employee_number";
+export const isManager=()=>["manager","branch_manager"].includes(state.role);
+export const isFullManager=()=>state.role==="manager"&&!isEmployeeLogin();
+export const canManageUsers=()=>isFullManager();
+export const canManagePurchasing=()=>isFullManager();
+export const canViewPayroll=()=>isFullManager();
+export const canSeeFinancials=()=>isFullManager();
+export const canSwitchBranches=()=>state.allowedBranchIds.length!==1;

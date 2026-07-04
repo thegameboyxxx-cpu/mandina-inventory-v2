@@ -1,4 +1,4 @@
-import { state, isManager } from "../state.js";
+import { state, isManager, isFullManager } from "../state.js";
 import { $, esc, money, qty, showError, toast, openModal, closeModal, businessToday, businessDayForTimestamp } from "../utils.js";
 import { safeSelect, insertRow, updateRow } from "../services/db.js";
 import { loadItems } from "./items.js";
@@ -40,7 +40,7 @@ export async function renderStaffMeal() {
         <div class="section-head">
           <h2>Staff Meal</h2>
           <div class="toolbar">
-            ${isManager() ? `<button class="btn secondary" id="staffMealPolicyBtn">Meal Rule</button>` : ""}
+            ${isFullManager() ? `<button class="btn secondary" id="staffMealPolicyBtn">Meal Rule</button>` : ""}
             <button class="btn" id="requestStaffMealBtn">+ Staff Meal</button>
           </div>
         </div>
@@ -48,7 +48,7 @@ export async function renderStaffMeal() {
         <div id="staffMealTable"></div>
       </div>
     `;
-    if (isManager()) $("staffMealPolicyBtn").onclick = openPolicyModal;
+    if (isFullManager()) $("staffMealPolicyBtn").onclick = openPolicyModal;
     $("requestStaffMealBtn").onclick = openStaffMealModal;
     renderMealTable();
   } catch (err) {
