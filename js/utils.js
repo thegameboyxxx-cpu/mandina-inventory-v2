@@ -107,6 +107,7 @@ export function toast(message, type = "info") {
 
 export function openModal(html) {
   $("modalRoot").innerHTML = `<div class="modal-backdrop"><div class="modal">${html}</div></div>`;
+  enhanceTables($("modalRoot"));
 }
 
 export function closeModal() {
@@ -114,3 +115,14 @@ export function closeModal() {
 }
 
 window.closeModal = closeModal;
+
+export function enhanceTables(root = document) {
+  root.querySelectorAll("table").forEach(table => {
+    const headers = [...table.querySelectorAll("thead th")].map(th => th.textContent.trim());
+    table.querySelectorAll("tbody tr").forEach(row => {
+      [...row.children].forEach((cell, index) => {
+        if (!cell.dataset.label && headers[index]) cell.dataset.label = headers[index];
+      });
+    });
+  });
+}

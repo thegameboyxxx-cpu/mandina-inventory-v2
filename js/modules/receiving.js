@@ -6,7 +6,7 @@ import { supplierName } from "./suppliers.js";
 
 let filters = { supplier_id: "", search: "" };
 let noteFilters = { supplier_id:"", from:"", to:"", search:"", payment_status:"", delivery_status:"", item_id:"" };
-let poList = [], items = [], suppliers = [], receivingNotes = [], receivingLines = [];
+let poList = [], allPurchaseOrders = [], items = [], suppliers = [], receivingNotes = [], receivingLines = [];
 
 const sameUnit = (a,b)=>String(a||"").toLowerCase().trim()===String(b||"").toLowerCase().trim();
 const item = id => items.find(i=>i.id===id);
@@ -42,13 +42,13 @@ function itemConversionFactor(it){
 }
 function paymentBadge(note){ const s=note.payment_status || "unpaid"; const cls=s==="paid"?"green":s==="partial"?"gold":"red"; return `<span class="badge ${cls}">${esc(s)}</span>`; }
 function unpaidAmount(n){ return Math.max(0, Number(n.total_amount||0)-Number(n.paid_amount||0)); }
-function notePo(note){ return poList.find(p=>p.id===(note.po_id||note.purchase_order_id)) || {}; }
+function notePo(note){ return allPurchaseOrders.find(p=>p.id===(note.po_id||note.purchase_order_id)) || {}; }
 
 async function loadAll(){
   await loadItemDeps(); await loadItems();
   items=state.items||[]; suppliers=state.suppliers||[];
-  poList = await safeSelect("purchase_orders","*", { eq:{branch_id:state.currentBranchId}, order:"created_at", ascending:false }).catch(()=>[]);
-  poList = poList.filter(po=>["approved","partially_received"].includes(po.status||""));
+  allPurchaseOrders = await safeSelect("purchase_orders","*", { eq:{branch_id:state.currentBranchId}, order:"created_at", ascending:false }).catch(()=>[]);
+  poList = allPurchaseOrders.filter(po=>["approved","partially_received"].includes(po.status||""));
   receivingNotes = await safeSelect("receiving_notes","*", { eq:{branch_id:state.currentBranchId}, order:"created_at", ascending:false }).catch(()=>[]);
   receivingLines = await safeSelect("receiving_note_lines","*").catch(()=>[]);
 }
