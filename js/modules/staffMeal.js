@@ -1,4 +1,4 @@
-import { state, isManager, isFullManager } from "../state.js";
+import { state, isManager, isFullManager, isEmployeeLogin } from "../state.js";
 import { $, esc, money, qty, showError, toast, openModal, closeModal, businessToday, businessDayForTimestamp } from "../utils.js";
 import { safeSelect, insertRow, updateRow } from "../services/db.js";
 import { loadItems } from "./items.js";
@@ -13,6 +13,13 @@ let shifts = [];
 let policy = null;
 
 const employee = id => employees.find(e => e.id === id);
+const currentLoginEmployee = () => {
+  if (!isEmployeeLogin()) return null;
+  return employees.find(e =>
+    e.active !== false &&
+    (e.id === state.profile?.employee_id || String(e.employee_number) === String(state.profile?.employee_number || "").trim())
+  );
+};
 const menuName = m => m ? `${m.name}${m.name_ar ? " / " + m.name_ar : ""}` : "Menu Item";
 const employeeDisplay = e => isManager() ? `${e?.full_name || "Employee"} (#${e?.employee_number || "-"})` : `Employee #${e?.employee_number || "-"}`;
 const mealNo = m => m?.staff_meal_number || `SM-${String(m?.id || "").slice(0, 8)}`;
@@ -94,12 +101,15 @@ function linesFor(mealId) {
 }
 
 function openStaffMealModal() {
+  const loginEmployee = currentLoginEmployee();
   openModal(`
     <div class="modal-head"><h3>Staff Meal Request</h3><button class="btn secondary small" onclick="closeModal()">x</button></div>
     <form id="staffMealForm">
       <div class="modal-body">
         <div class="form-grid">
-          <div><label>Employee Number</label><input name="employee_number" class="input" inputmode="numeric" required></div>
+          ${isEmployeeLogin()
+            ? `<div><label>Employee</label><input class="input" value="Employee #${esc(loginEmployee?.employee_number || state.profile?.employee_number || "-")}" disabled></div>`
+            : `<div><label>Employee Number</label><input name="employee_number" class="input" inputmode="numeric" required></div>`}
           <div><label>Meal Date</label><input name="meal_date" type="date" class="input" value="${businessToday()}" required></div>
           <div><label>Menu Item</label><select name="menu_item_id" required>${menuItems.filter(m => m.active !== false).map(m => `<option value="${esc(m.id)}">${esc(menuName(m))}</option>`).join("")}</select></div>
           <div><label>Qty</label><input name="qty" class="input" type="number" step="0.001" value="1" required></div>
@@ -112,7 +122,9 @@ function openStaffMealModal() {
   $("staffMealForm").onsubmit = async e => {
     e.preventDefault();
     const fd = new FormData(e.target);
-    const emp = employees.find(x => String(x.employee_number) === String(fd.get("employee_number")).trim() && x.active !== false);
+    const emp = isEmployeeLogin()
+      ? currentLoginEmployee()
+      : employees.find(x => String(x.employee_number) === String(fd.get("employee_number")).trim() && x.active !== false);
     if (!emp) return toast("Employee number not found or inactive.", "error");
     if (emp.branch_id !== state.currentBranchId) return toast("Employee belongs to a different branch.", "error");
     const activeShift = timeEntries.find(t => t.employee_id === emp.id && t.status === "clocked_in");

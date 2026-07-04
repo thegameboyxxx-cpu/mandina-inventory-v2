@@ -1,4 +1,4 @@
-import { state, isManager } from "../state.js";
+import { state, isManager, isEmployeeLogin } from "../state.js";
 import { $, esc, showError, toast, openModal, closeModal, businessToday, businessDayForTimestamp, formatDateTimeMelbourne, formatDuration } from "../utils.js";
 import { safeSelect, insertRow, updateRow } from "../services/db.js";
 
@@ -11,6 +11,13 @@ const GRACE_MINUTES = 5;
 const CLOCK_ALERT_MINUTES = 60;
 const employee = id => employees.find(e => e.id === id);
 const employeeByNumber = number => employees.find(e => String(e.employee_number).trim() === String(number).trim() && e.active !== false);
+const currentLoginEmployee = () => {
+  if (!isEmployeeLogin()) return null;
+  return employees.find(e =>
+    e.active !== false &&
+    (e.id === state.profile?.employee_id || String(e.employee_number) === String(state.profile?.employee_number || "").trim())
+  );
+};
 const branchName = id => (state.branches || []).find(b => b.id === id)?.name || id || "-";
 const employeeDisplay = e => isManager() ? `${e?.full_name || "Employee"} (#${e?.employee_number || "-"})` : `Employee #${e?.employee_number || "-"}`;
 
@@ -30,7 +37,9 @@ export async function renderTimeClock() {
         <div class="section-head">
           <h2>Time Clock</h2>
           <div class="toolbar">
-            <input id="clockEmployeeNumber" class="input" inputmode="numeric" placeholder="Employee number">
+            ${isEmployeeLogin()
+              ? `<span class="chip">Employee #${esc(currentLoginEmployee()?.employee_number || state.profile?.employee_number || "-")}</span>`
+              : `<input id="clockEmployeeNumber" class="input" inputmode="numeric" placeholder="Employee number">`}
             <button class="btn green" id="clockInBtn">Clock In</button>
             <button class="btn gold" id="clockOutBtn">Clock Out</button>
           </div>
@@ -66,7 +75,7 @@ function renderStaffHelp() {
   return `
     <div class="card">
       <div class="stat-title">Employee privacy</div>
-      <div>Use your employee number to clock in or out. Staff screens do not show other employees' names.</div>
+      <div>Your employee number is used automatically. Staff screens do not show other employees' names.</div>
     </div>
   `;
 }
@@ -120,9 +129,7 @@ function renderManagerEntries() {
 }
 
 async function handleClock(direction) {
-  const number = $("clockEmployeeNumber").value.trim();
-  if (!number) return toast("Enter employee number.", "error");
-  const e = employeeByNumber(number);
+  const e = isEmployeeLogin() ? currentLoginEmployee() : employeeByNumber($("clockEmployeeNumber").value.trim());
   if (!e) return toast("Employee number not found or inactive.", "error");
   if (e.branch_id !== state.currentBranchId) return toast("Employee belongs to a different branch.", "error");
   if (direction === "in") return clockIn(e);
