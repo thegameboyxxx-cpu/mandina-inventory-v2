@@ -1,4 +1,4 @@
-import { state, isManager, isFullManager, canSwitchBranches } from "./state.js";
+import { state, isManager, isFullManager, isEmployeeLogin, canSwitchBranches } from "./state.js";
 import { $, esc, toast } from "./utils.js";
 import { renderDashboard } from "./modules/dashboard.js";
 import { renderAlerts } from "./modules/alerts.js";
@@ -24,7 +24,7 @@ import { renderPayroll } from "./modules/payroll.js";
 export function renderShell(){
   $("loginPage").classList.add("hidden");
   $("app").classList.remove("hidden");
-  $("profileLine").textContent = `${state.profile?.full_name || state.user.email}`;
+  $("profileLine").textContent = profileText();
   $("roleChip").textContent = isFullManager() ? "Full Manager" : isManager() ? "Manager" : "Staff";
   document.querySelectorAll("[data-manager='true']").forEach(el => {
     el.style.display = isManager() ? "" : "none";
@@ -35,13 +35,21 @@ export function renderShell(){
   renderBranchSelect();
 }
 
+function profileText(){
+  const role = isFullManager() ? "Full Manager" : isManager() ? "Manager" : "Staff";
+  if (isEmployeeLogin()) return `Employee #${state.profile?.employee_number || "-"} - ${role}`;
+  return `${state.profile?.full_name || state.user.email} - ${role}`;
+}
+
 export function renderBranchSelect(){
-  const sel = $("branchSelect");
+  const selects = [$("branchSelect"), $("sidebarBranchSelect")].filter(Boolean);
   const allowed = state.allowedBranchIds?.length ? new Set(state.allowedBranchIds) : null;
   const branches = allowed ? state.branches.filter(b => allowed.has(b.id)) : state.branches;
-  sel.innerHTML = branches.map(b=>`<option value="${esc(b.id)}">${esc(b.name)}</option>`).join("");
-  sel.value = state.currentBranchId;
-  sel.disabled = !canSwitchBranches();
+  selects.forEach(sel => {
+    sel.innerHTML = branches.map(b=>`<option value="${esc(b.id)}">${esc(b.name)}</option>`).join("");
+    sel.value = state.currentBranchId;
+    sel.disabled = !canSwitchBranches();
+  });
 }
 
 export function setPage(page){

@@ -61,3 +61,19 @@
 .shift-pill.role-manager{background:#f3e9ff;border-color:#b58be2;color:#4a236c}
 .shift-pill.actual{background-image:repeating-linear-gradient(135deg,rgba(255,255,255,.28) 0,rgba(255,255,255,.28) 6px,rgba(0,0,0,.04) 7px,rgba(0,0,0,.04) 12px);cursor:pointer}
 .shift-pill.actual .shift-resize{display:none}
+
+.chip{align-items:center}
+.branch-select{min-height:auto;width:auto;padding:0;line-height:1;border:0}
+.sidebar-tools{display:none;border-top:1px solid rgba(255,255,255,.12);margin-top:16px;padding-top:16px}
+.sidebar-tools label{color:#e8d3b5}
+.sidebar-tools .input{background:#fff;margin-bottom:10px}
+.sidebar-tools .btn{width:100%;margin:4px 0}
+
+@media(max-width:720px){
+  .topbar{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:10px}
+  .topbar>div:first-child{min-width:0}
+  .topbar h1{font-size:18px;line-height:1.1}
+  #profileLine{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:calc(100vw - 82px)}
+  .top-actions{display:none}
+  .sidebar-tools{display:block}
+}
