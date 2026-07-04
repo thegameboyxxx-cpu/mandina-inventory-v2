@@ -6,7 +6,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const FUNCTION_VERSION = "2026-07-05.2";
+const FUNCTION_VERSION = "2026-07-05.3";
 
 function json(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify({ function_version: FUNCTION_VERSION, ...body }), {
@@ -51,7 +51,11 @@ function errorBody(err: unknown) {
 }
 
 function staffEmail(employeeNumber: string) {
-  return `${String(employeeNumber || "").trim()}@staff.mandina.local`;
+  return `${String(employeeNumber || "").trim()}@staff.mandina.com.au`;
+}
+
+function staffAuthPassword(pin: string) {
+  return `MandinaStaff-${String(pin || "").trim()}`;
 }
 
 serve(async req => {
@@ -137,7 +141,7 @@ serve(async req => {
         step = "updating auth user";
         const { data: updated, error: updateUserError } = await supabase.auth.admin.updateUserById(authUser.id, {
           email,
-          password,
+          password: staffAuthPassword(password),
           email_confirm: true,
           user_metadata: {
             full_name: employee.full_name,
@@ -151,7 +155,7 @@ serve(async req => {
         step = "creating auth user";
         const { data: created, error: createError } = await supabase.auth.admin.createUser({
           email,
-          password,
+          password: staffAuthPassword(password),
           email_confirm: true,
           user_metadata: {
             full_name: employee.full_name,

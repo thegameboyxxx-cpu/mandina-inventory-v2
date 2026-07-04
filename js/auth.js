@@ -3,7 +3,9 @@ import { state } from "./state.js";
 import { $, toast } from "./utils.js";
 import { safeSelect } from "./services/db.js";
 
-export const staffEmail = employeeNumber => `${String(employeeNumber || "").trim()}@staff.mandina.local`;
+export const staffEmail = employeeNumber => `${String(employeeNumber || "").trim()}@staff.mandina.com.au`;
+export const staffAuthPassword = pin => `MandinaStaff-${String(pin || "").trim()}`;
+const staffEmailDomains = ["@staff.mandina.com.au", "@staff.mandina.local"];
 
 export async function initAuth() {
   const { data } = await state.db.auth.getSession();
@@ -34,7 +36,7 @@ export async function loginStaff() {
   if (!employeeNumber || !password) return showLoginError("Enter employee number and password.");
   const { error } = await state.db.auth.signInWithPassword({
     email: staffEmail(employeeNumber),
-    password,
+    password: staffAuthPassword(password),
   });
   if (error) return showLoginError(error.message);
   location.reload();
@@ -48,7 +50,7 @@ export async function logout() {
 async function ensureProfile() {
   const id = state.user.id;
   const email = state.user.email || "";
-  const isStaffLogin = email.endsWith("@staff.mandina.local");
+  const isStaffLogin = staffEmailDomains.some(domain => email.endsWith(domain));
   const fullName = state.user.user_metadata?.full_name || state.user.user_metadata?.name || email || "User";
   let { data, error } = await state.db.from("profiles").select("*").eq("id", id).maybeSingle();
   if (error && error.code !== "PGRST116") throw Error(error.message);
