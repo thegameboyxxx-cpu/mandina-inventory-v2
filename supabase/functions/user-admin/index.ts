@@ -6,7 +6,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const FUNCTION_VERSION = "2026-07-05.3";
+const FUNCTION_VERSION = "2026-07-05.4";
 
 function json(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify({ function_version: FUNCTION_VERSION, ...body }), {
@@ -36,18 +36,60 @@ function rawErrorValue(value: unknown) {
   }
 }
 
+function ownErrorProps(err: unknown) {
+  if (!err || typeof err !== "object") return {};
+  const output: Record<string, unknown> = {};
+  for (const key of Object.getOwnPropertyNames(err)) {
+    try {
+      output[key] = (err as Record<string, unknown>)[key];
+    } catch {
+      output[key] = "[unreadable]";
+    }
+  }
+  return output;
+}
+
+function usefulErrorText(err: unknown) {
+  if (!err) return "";
+  if (typeof err === "string") return err;
+  if (err instanceof Error && err.message) return err.message;
+  const obj = err && typeof err === "object" ? err as Record<string, unknown> : null;
+  const own = ownErrorProps(err);
+  const candidates = [
+    obj?.message,
+    own.message,
+    obj?.error_description,
+    obj?.error,
+    obj?.msg,
+    own.name,
+  ].map(textValue).filter(Boolean);
+  const first = candidates.find(value => value !== "{}" && value !== "[]" && value !== "[object Object]");
+  if (first) return first;
+  const asText = String(err);
+  return asText !== "[object Object]" ? asText : "";
+}
+
 function errorBody(err: unknown) {
   const obj = err && typeof err === "object" ? err as Record<string, unknown> : null;
-  const message = obj?.message && obj.message !== "[object Object]"
-    ? textValue(obj.message)
-    : textValue(err);
+  const own = ownErrorProps(err);
+  const message = usefulErrorText(err);
   return {
     error: message || "Unknown user-admin error",
-    detail: textValue(obj?.details || obj?.detail),
-    hint: textValue(obj?.hint),
-    code: textValue(obj?.code),
+    detail: textValue(obj?.details || obj?.detail || own.details || own.detail),
+    hint: textValue(obj?.hint || own.hint),
+    code: textValue(obj?.code || own.code || obj?.status || own.status),
     raw_error: rawErrorValue(err),
+    raw_props: rawErrorValue(own),
   };
+}
+
+function authErrorResponse(err: unknown, step: string) {
+  const body = errorBody(err);
+  return json({
+    ...body,
+    detail: body.detail || `Failed while ${step}.`,
+    step,
+  }, 500);
 }
 
 function staffEmail(employeeNumber: string) {
@@ -132,7 +174,7 @@ serve(async req => {
 
       step = "listing auth users";
       const { data: existingUsers, error: listError } = await supabase.auth.admin.listUsers();
-      if (listError) throw listError;
+      if (listError) return authErrorResponse(listError, step);
       let authUser = existingProfile?.id
         ? existingUsers.users.find(user => user.id === existingProfile.id)
         : existingUsers.users.find(user => String(user.email || "").toLowerCase() === email.toLowerCase());
@@ -149,7 +191,7 @@ serve(async req => {
             login_type: "employee_number",
           },
         });
-        if (updateUserError) throw updateUserError;
+        if (updateUserError) return authErrorResponse(updateUserError, step);
         authUser = updated.user;
       } else {
         step = "creating auth user";
@@ -163,7 +205,7 @@ serve(async req => {
             login_type: "employee_number",
           },
         });
-        if (createError) throw createError;
+        if (createError) return authErrorResponse(createError, step);
         authUser = created.user;
       }
       if (!authUser?.id) return json({ error: "Auth user was not created." }, 500);
