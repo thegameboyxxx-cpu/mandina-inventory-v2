@@ -6,7 +6,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const FUNCTION_VERSION = "2026-07-04.1";
+const FUNCTION_VERSION = "2026-07-05.1";
 
 function json(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify({ function_version: FUNCTION_VERSION, ...body }), {
@@ -26,6 +26,16 @@ function textValue(value: unknown) {
   }
 }
 
+function rawErrorValue(value: unknown) {
+  if (!value) return "";
+  if (value instanceof Error) return value.message;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return textValue(value);
+  }
+}
+
 function errorBody(err: unknown) {
   const obj = err && typeof err === "object" ? err as Record<string, unknown> : null;
   const message = obj?.message && obj.message !== "[object Object]"
@@ -36,7 +46,7 @@ function errorBody(err: unknown) {
     detail: textValue(obj?.details || obj?.detail),
     hint: textValue(obj?.hint),
     code: textValue(obj?.code),
-    raw_error: obj ? JSON.stringify(obj) : textValue(err),
+    raw_error: rawErrorValue(err),
   };
 }
 
@@ -167,6 +177,13 @@ serve(async req => {
 
     return json({ error: "Unknown action." }, 400);
   } catch (err) {
-    return json(errorBody(err), 500);
+    try {
+      return json(errorBody(err), 500);
+    } catch (formatError) {
+      return json({
+        error: "User admin failed and the error could not be formatted.",
+        detail: textValue(formatError),
+      }, 500);
+    }
   }
 });
