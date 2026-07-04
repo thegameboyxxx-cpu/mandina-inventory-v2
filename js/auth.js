@@ -64,6 +64,7 @@ async function ensureProfile() {
       login_type: "google",
       employee_id: invited.employee_id || null,
       branch_id: invited.branch_id || null,
+      branch_ids: invited.branch_ids || (invited.branch_id ? [invited.branch_id] : null),
       active: true,
     }).select("*").single();
     if (insert.error) throw Error(insert.error.message);
@@ -101,9 +102,11 @@ export async function loadBranches() {
   } catch (e) {
     state.branches = CONFIG.defaultBranches;
   }
-  if (state.role !== "manager") {
-    const branchId = state.profile?.branch_id || state.currentBranchId;
-    state.currentBranchId = branchId;
+  const profileBranches = Array.isArray(state.profile?.branch_ids) ? state.profile.branch_ids.filter(Boolean) : [];
+  state.allowedBranchIds = profileBranches.length ? profileBranches : (state.profile?.branch_id ? [state.profile.branch_id] : state.branches.map(b => b.id));
+  if (!state.allowedBranchIds.length) state.allowedBranchIds = state.branches.map(b => b.id);
+  if (!state.allowedBranchIds.includes(state.currentBranchId)) {
+    state.currentBranchId = state.allowedBranchIds[0] || state.branches[0]?.id || "carlton";
     localStorage.setItem("mandina_branch", state.currentBranchId);
   }
   if (!state.branches.find(b => b.id === state.currentBranchId)) state.currentBranchId = state.branches[0]?.id || "carlton";

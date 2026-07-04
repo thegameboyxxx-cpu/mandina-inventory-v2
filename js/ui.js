@@ -1,4 +1,4 @@
-import { state, isManager } from "./state.js";
+import { state, isManager, canSwitchBranches } from "./state.js";
 import { $, esc, toast } from "./utils.js";
 import { renderDashboard } from "./modules/dashboard.js";
 import { renderAlerts } from "./modules/alerts.js";
@@ -34,9 +34,11 @@ export function renderShell(){
 
 export function renderBranchSelect(){
   const sel = $("branchSelect");
-  sel.innerHTML = state.branches.map(b=>`<option value="${esc(b.id)}">${esc(b.name)}</option>`).join("");
+  const allowed = state.allowedBranchIds?.length ? new Set(state.allowedBranchIds) : null;
+  const branches = allowed ? state.branches.filter(b => allowed.has(b.id)) : state.branches;
+  sel.innerHTML = branches.map(b=>`<option value="${esc(b.id)}">${esc(b.name)}</option>`).join("");
   sel.value = state.currentBranchId;
-  sel.disabled = !isManager();
+  sel.disabled = !canSwitchBranches();
 }
 
 export function setPage(page){

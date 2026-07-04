@@ -1,8 +1,7 @@
-import { CONFIG } from "../config.js";
 import { state, isManager } from "../state.js";
 import { $, esc, showError, toast, openModal, closeModal } from "../utils.js";
 import { safeSelect, insertRow, updateRow } from "../services/db.js";
-import { staffEmail } from "../auth.js";
+import { callFunction } from "../services/functions.js";
 
 let profiles = [];
 let employees = [];
@@ -13,6 +12,12 @@ const employee = id => employees.find(e => e.id === id);
 const employeeByNumber = number => employees.find(e => String(e.employee_number).trim() === String(number).trim());
 const employeeLabel = e => e ? `${e.full_name} (#${e.employee_number})` : "-";
 const branchName = id => (state.branches || []).find(b => b.id === id)?.name || id || "-";
+const branchAccess = row => Array.isArray(row?.branch_ids) && row.branch_ids.length ? row.branch_ids : (row?.branch_id ? [row.branch_id] : []);
+const branchAccessText = row => {
+  const ids = branchAccess(row);
+  if (!ids.length) return "All branches";
+  return ids.map(branchName).join(", ");
+};
 
 async function loadUsersData() {
   profiles = await safeSelect("profiles", "*", { order: "full_name" }).catch(() => []);
@@ -76,7 +81,7 @@ function renderUsersTable() {
           <td>${esc(loginLabel(p))}</td>
           <td><span class="badge ${p.role === "manager" ? "blue" : "gold"}">${esc(p.role || "staff")}</span></td>
           <td>${esc(employeeLabel(employee(p.employee_id)))}</td>
-          <td>${esc(branchName(p.branch_id || employee(p.employee_id)?.branch_id || ""))}</td>
+          <td>${esc(branchAccessText(p))}</td>
           <td><span class="badge ${p.active === false ? "red" : "green"}">${p.active === false ? "Inactive" : "Active"}</span></td>
           <td><button class="btn secondary small edit-user" data-id="${esc(p.id)}">Edit</button></td>
         </tr>`).join("") || '<tr><td colspan="7" class="muted">No users yet.</td></tr>'}
@@ -94,7 +99,7 @@ function renderInvites() {
     <div style="margin-top:18px">
       <h3 style="margin:0 0 10px">Google Manager Invites</h3>
       <table><thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Branch</th><th>Status</th></tr></thead><tbody>
-        ${rows.map(i => `<tr><td>${esc(i.email)}</td><td>${esc(i.full_name || "")}</td><td>${esc(i.role || "manager")}</td><td>${esc(branchName(i.branch_id))}</td><td><span class="badge green">Active</span></td></tr>`).join("")}
+        ${rows.map(i => `<tr><td>${esc(i.email)}</td><td>${esc(i.full_name || "")}</td><td>${esc(i.role || "manager")}</td><td>${esc(branchAccessText(i))}</td><td><span class="badge green">Active</span></td></tr>`).join("")}
       </tbody></table>
     </div>
   `;
@@ -110,8 +115,13 @@ function employeeOptions(selected = "") {
   return '<option value="">-- Select employee --</option>' + activeEmployees.map(e => `<option value="${esc(e.id)}" ${e.id === selected ? "selected" : ""}>${esc(employeeLabel(e))}</option>`).join("");
 }
 
-function branchOptions(selected = "") {
-  return (state.branches || []).map(b => `<option value="${esc(b.id)}" ${b.id === selected ? "selected" : ""}>${esc(b.name || b.id)}</option>`).join("");
+function branchChecks(selected = []) {
+  const chosen = new Set(selected);
+  return (state.branches || []).map(b => `<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="branch_ids" value="${esc(b.id)}" ${chosen.has(b.id) ? "checked" : ""}> ${esc(b.name || b.id)}</label>`).join("");
+}
+
+function formBranchIds(form) {
+  return form.getAll("branch_ids").map(String).filter(Boolean);
 }
 
 function openEmployeeLoginModal() {
@@ -123,8 +133,9 @@ function openEmployeeLoginModal() {
           <div class="full"><label>Employee</label><select name="employee_id" id="loginEmployeeId" required>${employeeOptions()}</select></div>
           <div><label>Employee Number</label><input id="loginEmployeeNumber" class="input" disabled></div>
           <div><label>Branch</label><input id="loginEmployeeBranch" class="input" disabled></div>
-          <div><label>Password</label><input name="password" type="password" class="input" required minlength="6"></div>
-          <div><label>Confirm Password</label><input name="confirm_password" type="password" class="input" required minlength="6"></div>
+          <div><label>Password</label><input name="password" type="password" class="input" required minlength="4" inputmode="numeric" pattern="[0-9]{4,}"><div class="muted">Minimum 4 digits.</div></div>
+          <div><label>Confirm Password</label><input name="confirm_password" type="password" class="input" required minlength="4" inputmode="numeric" pattern="[0-9]{4,}"></div>
+          <div class="full"><label>Branch Access</label><div class="card" style="margin-top:6px">${branchChecks([state.currentBranchId])}</div></div>
         </div>
         <div class="muted" style="margin-top:12px">The employee will log in using the employee number shown here. The internal email is hidden from staff.</div>
       </div>
@@ -144,45 +155,20 @@ function openEmployeeLoginModal() {
     const e = employee(fd.get("employee_id"));
     if (!e) return toast("Select an employee.", "error");
     const password = String(fd.get("password") || "");
+    const branchIds = formBranchIds(fd);
+    if (!branchIds.length) return toast("Select at least one branch.", "error");
     if (password !== String(fd.get("confirm_password") || "")) return toast("Passwords do not match.", "error");
-    await createEmployeeAuthUser(e, password);
+    await createEmployeeAuthUser(e, password, branchIds);
   };
 }
 
-async function createEmployeeAuthUser(employeeRow, password) {
-  const email = staffEmail(employeeRow.employee_number);
-  const temp = supabase.createClient(CONFIG.supabaseUrl, CONFIG.supabaseAnonKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-      detectSessionInUrl: false,
-      storageKey: `mandina-temp-${Date.now()}`,
-    },
-  });
+async function createEmployeeAuthUser(employeeRow, password, branchIds) {
   try {
-    const { data, error } = await temp.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          full_name: employeeRow.full_name,
-          employee_number: employeeRow.employee_number,
-          login_type: "employee_number",
-        },
-      },
-    });
-    if (error) throw error;
-    if (!data.user?.id) throw new Error("Supabase did not return a user id.");
-    await upsertProfile({
-      id: data.user.id,
-      full_name: employeeRow.full_name,
-      email,
-      role: "staff",
-      login_type: "employee_number",
+    await callFunction("user-admin", {
+      action: "create-employee-login",
       employee_id: employeeRow.id,
-      employee_number: employeeRow.employee_number,
-      branch_id: employeeRow.branch_id,
-      active: true,
+      password,
+      branch_ids: branchIds,
     });
     toast(`Login created for employee #${employeeRow.employee_number}.`, "ok");
     closeModal();
@@ -190,14 +176,6 @@ async function createEmployeeAuthUser(employeeRow, password) {
   } catch (err) {
     toast("User creation failed: " + friendlyAuthError(err), "error");
   }
-}
-
-async function upsertProfile(profile) {
-  const { error } = await state.db.from("profiles").upsert({
-    ...profile,
-    updated_at: new Date().toISOString(),
-  });
-  if (error) throw error;
 }
 
 function openGoogleManagerModal() {
@@ -208,7 +186,7 @@ function openGoogleManagerModal() {
         <div class="form-grid">
           <div><label>Email</label><input name="email" type="email" class="input" required></div>
           <div><label>Full Name</label><input name="full_name" class="input"></div>
-          <div><label>Branch</label><select name="branch_id">${branchOptions(state.currentBranchId)}</select></div>
+          <div class="full"><label>Branch Access</label><div class="card" style="margin-top:6px">${branchChecks([state.currentBranchId])}</div></div>
           <div><label>Role</label><select name="role"><option value="manager">Manager</option><option value="staff">Staff</option></select></div>
         </div>
         <div class="muted" style="margin-top:12px">After this, the manager can use Manager Login with Google using this email.</div>
@@ -225,7 +203,8 @@ function openGoogleManagerModal() {
         full_name: fd.get("full_name") || null,
         role: fd.get("role") || "manager",
         login_type: "google",
-        branch_id: fd.get("branch_id") || null,
+        branch_id: formBranchIds(fd)[0] || null,
+        branch_ids: formBranchIds(fd),
         active: true,
         created_by: state.user.id,
         updated_at: new Date().toISOString(),
@@ -248,7 +227,7 @@ function openUserEditModal(profile) {
         <div class="form-grid">
           <div><label>Name</label><input name="full_name" class="input" value="${esc(profile.full_name || "")}"></div>
           <div><label>Role</label><select name="role"><option value="staff" ${profile.role !== "manager" ? "selected" : ""}>Staff</option><option value="manager" ${profile.role === "manager" ? "selected" : ""}>Manager</option></select></div>
-          <div><label>Branch</label><select name="branch_id">${branchOptions(profile.branch_id || employee(profile.employee_id)?.branch_id || state.currentBranchId)}</select></div>
+          <div class="full"><label>Branch Access</label><div class="card" style="margin-top:6px">${branchChecks(branchAccess(profile).length ? branchAccess(profile) : [state.currentBranchId])}</div></div>
           <div><label>Status</label><select name="active"><option value="true" ${profile.active !== false ? "selected" : ""}>Active</option><option value="false" ${profile.active === false ? "selected" : ""}>Inactive</option></select></div>
           <div class="full"><label>Linked Employee</label><select name="employee_id">${employeeOptions(profile.employee_id || "")}</select></div>
         </div>
@@ -260,11 +239,14 @@ function openUserEditModal(profile) {
     event.preventDefault();
     const fd = new FormData(event.target);
     const e = employee(fd.get("employee_id"));
+    const branchIds = formBranchIds(fd);
+    if (!branchIds.length) return toast("Select at least one branch.", "error");
     try {
       await updateRow("profiles", profile.id, {
         full_name: fd.get("full_name") || profile.full_name,
         role: fd.get("role") || "staff",
-        branch_id: fd.get("branch_id") || e?.branch_id || null,
+        branch_id: branchIds[0] || e?.branch_id || null,
+        branch_ids: branchIds,
         employee_id: fd.get("employee_id") || null,
         employee_number: e?.employee_number || profile.employee_number || null,
         active: fd.get("active") === "true",
