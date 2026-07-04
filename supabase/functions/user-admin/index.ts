@@ -52,7 +52,12 @@ serve(async req => {
     const anonKey = req.headers.get("apikey") || Deno.env.get("SUPABASE_ANON_KEY") || "";
     if (!anonKey) return json({ error: "Missing Supabase anon key." }, 500);
     const serviceKey = Deno.env.get("MANDINA_SERVICE_ROLE_KEY")!;
-    if (!serviceKey) return json({ error: "Missing MANDINA_SERVICE_ROLE_KEY secret." }, 500);
+    if (!serviceKey) {
+      return json({
+        error: "Missing MANDINA_SERVICE_ROLE_KEY secret.",
+        detail: "Add the new Supabase service role secret to Edge Function secrets using the name MANDINA_SERVICE_ROLE_KEY.",
+      }, 500);
+    }
 
     const authClient = createClient(supabaseUrl, anonKey);
     const supabase = createClient(supabaseUrl, serviceKey);

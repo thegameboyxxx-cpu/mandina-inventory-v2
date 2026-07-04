@@ -13,11 +13,16 @@ function errorText(value) {
 }
 
 function functionErrorMessage(body, fallback) {
+  const primary = errorText(body?.error || body?.message);
+  const usefulPrimary = primary && primary !== "{}" && primary !== "[]" && primary !== "[object Object]"
+    ? primary
+    : fallback;
   const parts = [
-    errorText(body?.error || body?.message || fallback),
+    usefulPrimary,
     body?.detail ? `Detail: ${errorText(body.detail)}` : "",
     body?.hint ? `Hint: ${errorText(body.hint)}` : "",
     body?.code ? `Code: ${errorText(body.code)}` : "",
+    primary && primary !== usefulPrimary ? `Raw: ${primary}` : "",
   ].filter(Boolean);
   return parts.join(" | ");
 }
