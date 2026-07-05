@@ -40,6 +40,35 @@ function receivingText(item) {
     : item.receiving_unit || item.purchase_package_type || "";
 }
 
+function normalizeSearch(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .toLowerCase()
+    .trim();
+}
+
+function itemSearchText(item) {
+  return normalizeSearch([
+    item.name,
+    item.name_ar,
+    itemType(item),
+    categoryName(item.category_id),
+    supplierLabel(item.primary_supplier_id),
+    receivingText(item),
+    item.stock_unit,
+    item.cost_unit,
+    item.secondary_unit,
+    item.purchase_package_type,
+    item.purchase_package_unit,
+    item.brand,
+    item.acceptable_brands,
+    item.sku,
+    item.item_code,
+  ].filter(Boolean).join(" "));
+}
+
 async function itemHasHistory(itemId) {
   const checks = await Promise.all([
     state.db.from("stock_movements").select("id", { count: "exact", head: true }).eq("item_id", itemId),
@@ -81,8 +110,8 @@ export async function renderItems() {
 }
 
 function renderItemsTable() {
-  const q = ($("itemSearch")?.value || "").toLowerCase();
-  const rows = state.items.filter(item => JSON.stringify(item).toLowerCase().includes(q));
+  const terms = normalizeSearch($("itemSearch")?.value || "").split(" ").filter(Boolean);
+  const rows = state.items.filter(item => !terms.length || terms.every(term => itemSearchText(item).includes(term)));
 
   $("itemsTable").innerHTML = `
     <table>

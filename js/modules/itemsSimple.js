@@ -37,6 +37,33 @@ function conversionText(item) {
   return `1 ${recv} = ${amount || 1} ${stock}`;
 }
 
+function normalizeSearch(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .toLowerCase()
+    .trim();
+}
+
+function itemSearchText(item) {
+  return normalizeSearch([
+    item.name,
+    item.name_ar,
+    categoryName(item.category_id),
+    supplierLabel(item.primary_supplier_id),
+    receivingUnit(item),
+    stockUnit(item),
+    billingUnit(item),
+    item.purchase_package_type,
+    item.purchase_package_unit,
+    item.brand,
+    item.acceptable_brands,
+    item.sku,
+    item.item_code,
+  ].filter(Boolean).join(" "));
+}
+
 export async function renderItemsSimple() {
   if (!canManagePurchasing()) return $("content").innerHTML = showError("Full manager access required.");
 
@@ -70,10 +97,10 @@ export async function renderItemsSimple() {
 }
 
 function renderSimpleTable() {
-  const q = ($("simpleItemSearch")?.value || "").toLowerCase();
+  const terms = normalizeSearch($("simpleItemSearch")?.value || "").split(" ").filter(Boolean);
   const rows = state.items
     .filter(isRawItem)
-    .filter(item => JSON.stringify(item).toLowerCase().includes(q));
+    .filter(item => !terms.length || terms.every(term => itemSearchText(item).includes(term)));
 
   $("simpleItemsTable").innerHTML = `
     <table>
