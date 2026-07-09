@@ -36,6 +36,12 @@ function stockText(itemId) {
   return `${qty(stockQty(itemId))} ${it?.stock_unit || ""}`;
 }
 
+function itemNotes(it) {
+  return [it?.notes, it?.description, it?.acceptable_brands ? `Acceptable brands: ${it.acceptable_brands}` : ""]
+    .filter(Boolean)
+    .join(" ");
+}
+
 function outputUnitForItem(it) {
   return it?.stock_unit || it?.receiving_unit || it?.purchase_package_unit || "";
 }
@@ -432,7 +438,7 @@ function openBatchModal(recipe = null) {
           <div id="mainInputWrap"><label>Main Input Used</label><input name="main_input_qty" id="mainInputQty" type="number" step="0.001" class="input"></div>
           <div><label>Actual Output Qty</label><input name="actual_output_qty" id="actualOutputQty" type="number" step="0.001" class="input"></div>
           <div><label>Waste/Loss Qty</label><input name="waste_qty" id="wasteQty" type="number" step="0.001" class="input" value="0"></div>
-          ${isFullManager() ? `<div><label><input type="checkbox" name="allow_negative" style="width:auto"> Allow negative stock override</label></div>` : ""}
+          ${isFullManager() ? `<div><label><input type="checkbox" name="allow_negative" style="width:auto"> Allow negative stock override</label><div class="muted">Manager-only. Use only when production must be completed before stock is corrected. It can make stock go below zero.</div></div>` : ""}
           <div class="full"><label>Notes</label><textarea name="notes" class="input" rows="2"></textarea></div>
         </div>
         <div id="batchPreview" style="margin-top:16px"></div>
@@ -470,6 +476,7 @@ function openBatchModal(recipe = null) {
     const grossOutput = actualOutput + waste;
     const variance = actualOutput - expectedOutput;
     const variancePct = expectedOutput ? (Math.abs(variance) / expectedOutput) * 100 : 0;
+    const recipeNotes = [r.notes, itemNotes(out)].filter(Boolean);
 
     $("mainInputWrap").style.display = scaleInput ? "" : "none";
     $("batchPreview").innerHTML = `
@@ -479,17 +486,19 @@ function openBatchModal(recipe = null) {
         <div class="card"><div class="stat-title">Expected Output</div><div><b>${qty(expectedOutput)} ${esc(outputUnit)}</b></div></div>
         <div class="card"><div class="stat-title">Variance</div><div><b>${qty(variance)} ${esc(outputUnit)}</b></div><div class="muted">${qty(variancePct)}%</div></div>
       </div>
+      ${recipeNotes.length ? `<div class="card" style="margin-bottom:14px"><div class="stat-title">Production Notes</div>${recipeNotes.map(note => `<div>${esc(note)}</div>`).join("")}</div>` : ""}
       ${scaleInput ? `<div class="muted" style="margin-bottom:10px">Scaling from ${esc(itemLabel(item(scaleInput.item_id)))}: ${qty(mainUsed)} ${esc(scaleInput.unit)} used.</div>` : `<div class="muted" style="margin-bottom:10px">No scaling base. Inputs scale from actual output.</div>`}
       ${errors.length ? `<div class="errorbox">${errors.map(esc).join("<br>")}</div>` : ""}
       ${shortages.length ? `<div class="errorbox">${shortages.map(x => `Not enough stock for ${esc(itemLabel(x.item))}. Required ${qty(x.required_qty)} ${esc(x.unit)}, available ${qty(stockQty(x.item_id))} ${esc(x.item?.stock_unit || "")}.`).join("<br>")}</div>` : ""}
       <table>
-        <thead><tr><th>Input</th><th>Required Deduction</th><th>Current Stock</th><th>After</th><th>Movement</th></tr></thead>
+        <thead><tr><th>Input</th><th>Required Deduction</th><th>Current Stock</th><th>After</th><th>Notes</th><th>Movement</th></tr></thead>
         <tbody>
           ${lines.map(x => `<tr>
             <td>${esc(itemLabel(x.item))}</td>
             <td>${qty(x.required_qty)} ${esc(x.unit)}</td>
             <td>${esc(stockText(x.item_id))}</td>
             <td>${qty(stockQty(x.item_id) - Number(x.required_qty || 0))} ${esc(x.item?.stock_unit || "")}</td>
+            <td>${esc([x.notes, itemNotes(x.item)].filter(Boolean).join(" "))}</td>
             <td><span class="badge red">PRODUCTION_INPUT</span></td>
           </tr>`).join("")}
           <tr>
@@ -497,9 +506,10 @@ function openBatchModal(recipe = null) {
             <td><b>${qty(grossOutput)} ${esc(outputUnit)}</b><div class="muted">Net usable: ${qty(actualOutput)}${waste > 0 ? `, waste: ${qty(waste)}` : ""}</div></td>
             <td>${esc(stockText(r.output_item_id))}</td>
             <td>${qty(stockQty(r.output_item_id) + actualOutput)} ${esc(outputUnit)}</td>
+            <td>${esc(itemNotes(out))}</td>
             <td><span class="badge green">PRODUCTION_OUTPUT</span></td>
           </tr>
-          ${waste > 0 ? `<tr><td><b>${esc(itemLabel(out))} waste</b></td><td>${qty(waste)} ${esc(outputUnit)}</td><td></td><td></td><td><span class="badge red">WASTE</span></td></tr>` : ""}
+          ${waste > 0 ? `<tr><td><b>${esc(itemLabel(out))} waste</b></td><td>${qty(waste)} ${esc(outputUnit)}</td><td></td><td></td><td>${esc(itemNotes(out))}</td><td><span class="badge red">WASTE</span></td></tr>` : ""}
         </tbody>
       </table>
     `;
