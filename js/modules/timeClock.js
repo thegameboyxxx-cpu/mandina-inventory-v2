@@ -1,5 +1,5 @@
 import { state, isManager, isEmployeeLogin } from "../state.js";
-import { $, esc, showError, toast, openModal, closeModal, businessToday, businessDayForTimestamp, formatDateTimeMelbourne, formatDuration } from "../utils.js";
+import { $, esc, showError, toast, openModal, closeModal, businessToday, businessDayForTimestamp, dateKeyInZone, formatDateTimeMelbourne, formatTimeMelbourne, formatDuration } from "../utils.js";
 import { safeSelect, insertRow, updateRow } from "../services/db.js";
 
 let employees = [];
@@ -7,7 +7,7 @@ let shifts = [];
 let entries = [];
 let clockBusy = false;
 
-const TEST_MODE = true;
+const TEST_MODE = false;
 const GRACE_MINUTES = 5;
 const CLOCK_ALERT_MINUTES = 60;
 const employee = id => employees.find(e => e.id === id);
@@ -45,7 +45,7 @@ export async function renderTimeClock() {
             <button class="btn gold" id="clockOutBtn">Clock Out</button>
           </div>
         </div>
-        <div class="muted" style="margin-bottom:12px">Testing mode is active: GPS and late/early blocking are prepared but not enforced yet.</div>
+        <div class="muted" style="margin-bottom:12px">Time clock rules are active: employees must enter a reason when clocking in or out outside the 5-minute buffer.</div>
         <div id="clockPanel"></div>
       </div>
     `;
@@ -66,7 +66,7 @@ function renderClockPanel() {
       <div class="card"><div class="stat-title">Branch</div><div><b>${esc(branchName(state.currentBranchId))}</b></div></div>
       <div class="card"><div class="stat-title">Clocked In</div><div><b>${openEntries.length}</b></div></div>
       <div class="card"><div class="stat-title">Today Entries</div><div><b>${todayEntries.length}</b></div></div>
-      <div class="card"><div class="stat-title">Testing Mode</div><div><b>On</b></div></div>
+      <div class="card"><div class="stat-title">Timing Rules</div><div><b>Active</b></div></div>
     </div>
     ${isManager() ? renderManagerEntries() : renderStaffHelp()}
   `;
@@ -274,8 +274,9 @@ function shiftForEmployeeToday(employeeId) {
 }
 
 function timingStatus(shift, direction) {
-  const planned = minutes(direction === "in" ? shift.start_time : shift.end_time);
-  const diff = minutesNow() - planned;
+  const planned = plannedShiftMinute(shift, direction);
+  const actual = actualShiftMinute(shift, new Date());
+  const diff = actual - planned;
   const abs = Math.abs(diff);
   const word = diff > 0 ? "late" : "early";
   return {
@@ -284,6 +285,26 @@ function timingStatus(shift, direction) {
     absMinutes: abs,
     label: abs <= GRACE_MINUTES ? "Within 5m buffer" : `${formatDuration(abs)} ${word}`,
   };
+}
+
+function plannedShiftMinute(shift, direction) {
+  const start = minutes(shift.start_time);
+  let end = minutes(shift.end_time);
+  if (end <= start) end += 1440;
+  return direction === "in" ? start : end;
+}
+
+function actualShiftMinute(shift, value) {
+  const shiftDate = String(shift?.shift_date || businessToday()).slice(0, 10);
+  const localDate = dateKeyInZone(value);
+  const dayOffset = dayDiff(shiftDate, localDate) * 1440;
+  return dayOffset + minutes(formatTimeMelbourne(value));
+}
+
+function dayDiff(fromDate, toDate) {
+  const from = new Date(`${fromDate}T00:00:00Z`);
+  const to = new Date(`${toDate}T00:00:00Z`);
+  return Math.round((to - from) / 86400000);
 }
 
 async function maybeCreateClockAlert(entry, employeeRow, shift, timing, reason) {
