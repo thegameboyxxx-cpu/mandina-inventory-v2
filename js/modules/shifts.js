@@ -28,7 +28,8 @@ const branchName = id => (state.branches || []).find(b => b.id === id)?.name || 
 async function loadShiftData() {
   employees = await safeSelect("employees", "*", { order: "employee_number" }).catch(() => []);
   shifts = await safeSelect("shift_schedules", "*", { eq: { branch_id: state.currentBranchId }, order: "shift_date" }).catch(() => []);
-  timeEntries = await safeSelect("time_entries", "*", { eq: { branch_id: state.currentBranchId }, order: "created_at", ascending: false }).catch(() => []);
+  timeEntries = (await safeSelect("time_entries", "*", { eq: { branch_id: state.currentBranchId }, order: "created_at", ascending: false }).catch(() => []))
+    .filter(entry => entry.status !== "cancelled");
   templates = await safeSelect("shift_templates", "*", { eq: { branch_id: state.currentBranchId }, order: "name" }).catch(() => []);
   templateLines = await safeSelect("shift_template_lines", "*").catch(() => []);
 }
@@ -185,7 +186,7 @@ function plannedRowsForDay(day) {
 
 function actualRowsForDay(day) {
   return timeEntries
-    .filter(entry => entryBusinessDay(entry) === day)
+    .filter(entry => entry.status !== "cancelled" && entryBusinessDay(entry) === day)
     .map(entry => {
       const e = employee(entry.employee_id);
       const start = toLocalTime(entry.clock_in_at || entry.created_at);
