@@ -444,7 +444,7 @@ function openSalesDetails(report) {
         <div class="full"><label>Notes</label><textarea class="input" rows="2" disabled>${esc(report.notes || "")}</textarea></div>
       </div>
       <table>
-        <thead><tr><th>Item</th><th>Qty</th>${canSeeFinancials() ? "<th>Price</th><th>Total</th>" : ""}<th>Mapping</th><th>Note</th></tr></thead>
+        <thead><tr><th>Item</th><th>Qty</th>${canSeeFinancials() ? "<th>Price</th><th>Total</th>" : ""}<th>Mapping</th><th>Line Status</th><th>Note</th></tr></thead>
         <tbody>
           ${reportLines.map(line => {
             const mi = menuItems.find(m => m.id === line.menu_item_id);
@@ -454,9 +454,10 @@ function openSalesDetails(report) {
               <td>${qty(line.qty_sold || 0)}</td>
               ${canSeeFinancials() ? `<td>${money(line.unit_price || 0)}</td><td>${money(line.net_sales_amount || 0)}</td>` : ""}
               <td>${!mi ? '<span class="badge red">Not mapped</span>' : comps.length ? `<span class="badge green">${esc(menuName(mi))}</span>` : `<span class="badge red">${esc(menuName(mi))}: no deductions</span>`}</td>
+              <td><span class="badge ${line.status === "processed" ? "green" : "gold"}">${esc(line.status || "draft")}</span></td>
               <td>${esc(line.notes || "")}</td>
             </tr>`;
-          }).join("") || `<tr><td colspan="${canSeeFinancials() ? 6 : 4}" class="muted">No lines.</td></tr>`}
+          }).join("") || `<tr><td colspan="${canSeeFinancials() ? 7 : 5}" class="muted">No lines.</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -565,9 +566,15 @@ async function processSales(report, options = {}) {
   if (!report || report.status === "confirmed") return;
   try {
     const reportLines = linesFor(report.id);
-    const issues = reportMappingIssues(report);
-    if (issues.length) throw new Error(`Missing sales deduction mapping: ${issues.slice(0, 5).join(" ")}`);
-    for (const line of reportLines) {
+    const pendingLines = reportLines.filter(line => line.status !== "processed");
+    let processedLines = 0;
+    const skippedIssues = [];
+    for (const line of pendingLines) {
+      const issues = lineMappingIssues(line);
+      if (issues.length) {
+        skippedIssues.push(...issues);
+        continue;
+      }
       const comps = componentsFor(line.menu_item_id);
       for (const comp of comps) {
         const si = item(comp.item_id);
@@ -589,12 +596,23 @@ async function processSales(report, options = {}) {
         if (error) throw error;
       }
       await state.db.from("sales_report_lines").update({ status: "processed" }).eq("id", line.id);
+      processedLines += 1;
     }
-    await updateRow("sales_reports", report.id, { status: "confirmed", confirmed_by: state.user.id, processed_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+    const allProcessed = reportLines.length > 0 && processedLines + reportLines.filter(line => line.status === "processed").length === reportLines.length;
+    if (allProcessed) {
+      await updateRow("sales_reports", report.id, { status: "confirmed", confirmed_by: state.user.id, processed_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+    } else {
+      await updateRow("sales_reports", report.id, { status: "draft", updated_at: new Date().toISOString() });
+    }
     if (!options.silent) {
-      toast("Sales processed and stock deducted.", "ok");
+      if (skippedIssues.length) {
+        toast(`Processed ${processedLines} line(s). Skipped ${skippedIssues.length} missing mapping(s). ${skippedIssues[0]}`, processedLines ? "info" : "error");
+      } else {
+        toast("Sales processed and stock deducted.", "ok");
+      }
       renderSales();
     }
+    return { processedLines, skippedLines: skippedIssues.length, confirmed: allProcessed, skippedIssues };
   } catch (err) {
     if (options.silent) throw err;
     toast("Sales processing failed: " + errText(err), "error");
@@ -606,28 +624,27 @@ async function processVisibleSales() {
   if (!rows.length) return toast("No draft sales reports to process.", "info");
   const proceed = confirm(`Process ${rows.length} shown sales reports and deduct stock?`);
   if (!proceed) return;
-  let processed = 0;
-  let skipped = 0;
+  let processedReports = 0;
+  let processedLines = 0;
+  let skippedLines = 0;
   const skippedDetails = [];
   try {
     for (const report of rows) {
-      const issues = reportMappingIssues(report);
-      if (issues.length) {
-        skipped += 1;
-        skippedDetails.push(`${reportNo(report)}: ${issues[0]}`);
-        continue;
-      }
-      await processSales(report, { silent: true });
-      processed += 1;
+      const result = await processSales(report, { silent: true });
+      if (!result) continue;
+      if (result.processedLines) processedReports += 1;
+      processedLines += Number(result.processedLines || 0);
+      skippedLines += Number(result.skippedLines || 0);
+      if (result.skippedIssues?.length) skippedDetails.push(`${reportNo(report)}: ${result.skippedIssues[0]}`);
     }
-    if (skipped) {
-      toast(`Processed ${processed} reports. Skipped ${skipped} with missing mappings. ${skippedDetails.slice(0, 2).join(" ")}`, processed ? "info" : "error");
+    if (skippedLines) {
+      toast(`Deducted ${processedLines} line(s) from ${processedReports} report(s). Skipped ${skippedLines} line(s) with missing mappings. ${skippedDetails.slice(0, 2).join(" ")}`, processedLines ? "info" : "error");
     } else {
-      toast(`Processed ${processed} sales reports.`, "ok");
+      toast(`Processed ${processedReports} sales reports.`, "ok");
     }
     renderSales();
   } catch (err) {
-    toast(`Processed ${processed} reports, then stopped: ${errText(err)}`, "error");
+    toast(`Deducted ${processedLines} line(s), then stopped: ${errText(err)}`, "error");
     renderSales();
   }
 }
