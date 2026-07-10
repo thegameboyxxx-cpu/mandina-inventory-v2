@@ -258,6 +258,16 @@ function componentsFor(menuItemId) {
   return components.filter(c => c.menu_item_id === menuItemId);
 }
 
+function lineMappingIssues(line) {
+  if (!line.menu_item_id) return [`${line.pos_item_name || "Menu item"} is not mapped to a menu item.`];
+  if (!componentsFor(line.menu_item_id).length) return [`${line.pos_item_name || menuName(menuItems.find(m => m.id === line.menu_item_id))} has no stock deduction mapping.`];
+  return [];
+}
+
+function reportMappingIssues(report) {
+  return linesFor(report.id).flatMap(lineMappingIssues);
+}
+
 function openCashCountModal() {
   const defaultDate = filters.from && filters.from === filters.to ? filters.from : today();
   const allowedDateOptions = `<option value="${today()}" ${defaultDate === today() ? "selected" : ""}>Today</option><option value="${yesterday()}" ${defaultDate === yesterday() ? "selected" : ""}>Yesterday</option>`;
@@ -438,11 +448,12 @@ function openSalesDetails(report) {
         <tbody>
           ${reportLines.map(line => {
             const mi = menuItems.find(m => m.id === line.menu_item_id);
+            const comps = componentsFor(line.menu_item_id);
             return `<tr>
               <td>${esc(line.pos_item_name || menuName(mi))}</td>
               <td>${qty(line.qty_sold || 0)}</td>
               ${canSeeFinancials() ? `<td>${money(line.unit_price || 0)}</td><td>${money(line.net_sales_amount || 0)}</td>` : ""}
-              <td>${mi ? `<span class="badge green">${esc(menuName(mi))}</span>` : '<span class="badge red">Not mapped</span>'}</td>
+              <td>${!mi ? '<span class="badge red">Not mapped</span>' : comps.length ? `<span class="badge green">${esc(menuName(mi))}</span>` : `<span class="badge red">${esc(menuName(mi))}: no deductions</span>`}</td>
               <td>${esc(line.notes || "")}</td>
             </tr>`;
           }).join("") || `<tr><td colspan="${canSeeFinancials() ? 6 : 4}" class="muted">No lines.</td></tr>`}
@@ -554,9 +565,10 @@ async function processSales(report, options = {}) {
   if (!report || report.status === "confirmed") return;
   try {
     const reportLines = linesFor(report.id);
+    const issues = reportMappingIssues(report);
+    if (issues.length) throw new Error(`Missing sales deduction mapping: ${issues.slice(0, 5).join(" ")}`);
     for (const line of reportLines) {
       const comps = componentsFor(line.menu_item_id);
-      if (!comps.length) throw new Error(`${line.pos_item_name || "Menu item"} has no deduction mapping.`);
       for (const comp of comps) {
         const si = item(comp.item_id);
         const amount = -Math.abs(Number(comp.qty_per_portion || 0) * Number(line.qty_sold || 0));
@@ -595,12 +607,24 @@ async function processVisibleSales() {
   const proceed = confirm(`Process ${rows.length} shown sales reports and deduct stock?`);
   if (!proceed) return;
   let processed = 0;
+  let skipped = 0;
+  const skippedDetails = [];
   try {
     for (const report of rows) {
+      const issues = reportMappingIssues(report);
+      if (issues.length) {
+        skipped += 1;
+        skippedDetails.push(`${reportNo(report)}: ${issues[0]}`);
+        continue;
+      }
       await processSales(report, { silent: true });
       processed += 1;
     }
-    toast(`Processed ${processed} sales reports.`, "ok");
+    if (skipped) {
+      toast(`Processed ${processed} reports. Skipped ${skipped} with missing mappings. ${skippedDetails.slice(0, 2).join(" ")}`, processed ? "info" : "error");
+    } else {
+      toast(`Processed ${processed} sales reports.`, "ok");
+    }
     renderSales();
   } catch (err) {
     toast(`Processed ${processed} reports, then stopped: ${errText(err)}`, "error");
