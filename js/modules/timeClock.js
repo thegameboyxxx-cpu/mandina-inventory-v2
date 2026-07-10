@@ -5,6 +5,7 @@ import { safeSelect, insertRow, updateRow } from "../services/db.js";
 let employees = [];
 let shifts = [];
 let entries = [];
+let clockBusy = false;
 
 const TEST_MODE = true;
 const GRACE_MINUTES = 5;
@@ -129,6 +130,7 @@ function renderManagerEntries() {
 }
 
 async function handleClock(direction) {
+  if (clockBusy) return toast("Clock action is already saving. Please wait.", "info");
   const e = isEmployeeLogin() ? currentLoginEmployee() : employeeByNumber($("clockEmployeeNumber").value.trim());
   if (!e) return toast("Employee number not found or inactive.", "error");
   if (e.branch_id !== state.currentBranchId) return toast("Employee belongs to a different branch.", "error");
@@ -137,7 +139,7 @@ async function handleClock(direction) {
 }
 
 async function clockIn(e) {
-  const open = entries.find(entry => entry.employee_id === e.id && entry.status === "clocked_in");
+  const open = await findOpenEntry(e.id);
   if (open) return toast("This employee is already clocked in.", "error");
   const shift = shiftForEmployeeToday(e.id);
   const timing = shift ? timingStatus(shift, "in") : { requiresReason: false, label: "No planned shift" };
@@ -149,6 +151,14 @@ async function clockIn(e) {
     required: !TEST_MODE && timing.requiresReason,
     onSave: async reason => {
       try {
+        if (clockBusy) return;
+        clockBusy = true;
+        const freshOpen = await findOpenEntry(e.id);
+        if (freshOpen) {
+          toast("This employee is already clocked in.", "error");
+          closeModal();
+          return renderTimeClock();
+        }
         const entry = await insertRow("time_entries", {
           employee_id: e.id,
           shift_id: shift?.id || null,
@@ -164,14 +174,22 @@ async function clockIn(e) {
         closeModal();
         renderTimeClock();
       } catch (err) {
-        toast("Clock in failed: " + err.message, "error");
+        if (String(err?.code || err?.message || "").includes("23505") || String(err?.message || "").includes("duplicate")) {
+          toast("This employee is already clocked in.", "error");
+          closeModal();
+          renderTimeClock();
+        } else {
+          toast("Clock in failed: " + err.message, "error");
+        }
+      } finally {
+        clockBusy = false;
       }
     },
   });
 }
 
 async function clockOut(e) {
-  const open = entries.find(entry => entry.employee_id === e.id && entry.status === "clocked_in");
+  const open = await findOpenEntry(e.id);
   if (!open) return toast("No open clock-in found for this employee.", "error");
   const shift = shifts.find(s => s.id === open.shift_id) || shiftForEmployeeToday(e.id);
   const timing = shift ? timingStatus(shift, "out") : { requiresReason: false, label: "No planned shift" };
@@ -183,6 +201,8 @@ async function clockOut(e) {
     required: !TEST_MODE && timing.requiresReason,
     onSave: async reason => {
       try {
+        if (clockBusy) return;
+        clockBusy = true;
         const now = new Date();
         const total = Math.max(0, Math.round((now - new Date(open.clock_in_at)) / 60000));
         const paid = Math.max(0, total - Number(open.break_minutes || 0));
@@ -199,9 +219,26 @@ async function clockOut(e) {
         renderTimeClock();
       } catch (err) {
         toast("Clock out failed: " + err.message, "error");
+      } finally {
+        clockBusy = false;
       }
     },
   });
+}
+
+async function findOpenEntry(employeeId) {
+  const local = entries.find(entry => entry.employee_id === employeeId && entry.status === "clocked_in");
+  if (local) return local;
+  const { data, error } = await state.db
+    .from("time_entries")
+    .select("*")
+    .eq("employee_id", employeeId)
+    .eq("status", "clocked_in")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error && error.code !== "PGRST116") throw error;
+  return data || null;
 }
 
 function openClockReasonModal({ title, employee: e, shift, timing, required, onSave }) {
