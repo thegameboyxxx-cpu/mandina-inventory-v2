@@ -27,10 +27,10 @@ function supplierEmail(s){ return s?.email || s?.company_email || s?.contact_ema
 function help(text){ return ` <span title="${esc(text)}" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;border:1px solid #aaa;color:#666;font-size:11px;font-weight:700;cursor:help;margin-left:4px;vertical-align:middle">i</span>`; }
 
 function receivedLineValue(line){
-  if(line.line_total !== null && line.line_total !== undefined) return Number(line.line_total || 0);
   const price = Number(line.actual_unit_price || line.unit_price || 0);
   if(line.secondary_qty !== null && line.secondary_qty !== undefined && Number(line.secondary_qty || 0) > 0) return Number(line.secondary_qty || 0) * price;
   if(line.cost_qty !== null && line.cost_qty !== undefined && Number(line.cost_qty || 0) > 0) return Number(line.cost_qty || 0) * price;
+  if(line.line_total !== null && line.line_total !== undefined) return Number(line.line_total || 0);
   return Number(line.accepted_qty || 0) * price;
 }
 

@@ -12,6 +12,26 @@ function bindResponsiveTables() {
   });
 }
 
+function bindDoubleClickProtection() {
+  document.addEventListener("click", event => {
+    const button = event.target.closest?.("button");
+    if (!button || button.disabled || button.dataset.allowRepeat === "true") return;
+
+    const now = Date.now();
+    const lockedUntil = Number(button.dataset.clickLockedUntil || 0);
+    if (now < lockedUntil) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
+
+    button.dataset.clickLockedUntil = String(now + 1800);
+    setTimeout(() => {
+      if (Number(button.dataset.clickLockedUntil || 0) <= Date.now()) delete button.dataset.clickLockedUntil;
+    }, 1900);
+  }, true);
+}
+
 function changeBranch(value) {
   state.currentBranchId = value;
   localStorage.setItem("mandina_branch", state.currentBranchId);
@@ -22,6 +42,7 @@ function changeBranch(value) {
 async function init() {
   state.db = supabase.createClient(CONFIG.supabaseUrl, CONFIG.supabaseAnonKey);
   bindResponsiveTables();
+  bindDoubleClickProtection();
 
   $("loginBtn").onclick = loginGoogle;
   $("staffLoginBtn").onclick = loginStaff;

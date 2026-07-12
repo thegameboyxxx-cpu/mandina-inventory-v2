@@ -7,6 +7,7 @@ import { supplierName } from "./suppliers.js";
 let filters = { supplier_id: "", search: "" };
 let noteFilters = { supplier_id:"", from:"", to:"", search:"", payment_status:"", delivery_status:"", item_id:"" };
 let poList = [], allPurchaseOrders = [], items = [], suppliers = [], receivingNotes = [], receivingLines = [];
+let receivingSaveBusy = false;
 
 const sameUnit = (a,b)=>String(a||"").toLowerCase().trim()===String(b||"").toLowerCase().trim();
 const item = id => items.find(i=>i.id===id);
@@ -24,10 +25,10 @@ function supplierEmail(s){ return s?.email || s?.company_email || s?.contact_ema
 function help(text){ return ` <span title="${esc(text)}" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;border:1px solid #aaa;color:#666;font-size:11px;font-weight:700;cursor:help;margin-left:4px;vertical-align:middle">i</span>`; }
 
 function receivedLineValue(line){
-  if(line.line_total !== null && line.line_total !== undefined) return Number(line.line_total || 0);
   const price = Number(line.actual_unit_price || line.unit_price || 0);
   if(line.secondary_qty !== null && line.secondary_qty !== undefined && Number(line.secondary_qty || 0) > 0) return Number(line.secondary_qty || 0) * price;
   if(line.cost_qty !== null && line.cost_qty !== undefined && Number(line.cost_qty || 0) > 0) return Number(line.cost_qty || 0) * price;
+  if(line.line_total !== null && line.line_total !== undefined) return Number(line.line_total || 0);
   return Number(line.accepted_qty || 0) * price;
 }
 function itemConversionFactor(it){
@@ -362,8 +363,16 @@ async function openReceivingModal(po){
     const active = local.filter(l=>Number(l.delivered_qty||0)>0 || Number(l.accepted_qty||0)>0 || Number(l.rejected_qty||0)>0);
 
     if(!active.length) return toast("Enter at least one delivered quantity.","error");
+    if(receivingSaveBusy) return toast("Receiving is already saving. Please wait.","info");
 
+    const submitButton = event.submitter || event.target.querySelector('button[type="submit"], button.btn.green');
     try{
+      receivingSaveBusy = true;
+      if(submitButton){
+        submitButton.disabled = true;
+        submitButton.dataset.originalText = submitButton.textContent;
+        submitButton.textContent = "Saving...";
+      }
       const total = calculateTotal();
       const grnNumber = `RN-${Date.now().toString().slice(-8)}`;
 
@@ -426,6 +435,13 @@ async function openReceivingModal(po){
       renderReceiving();
     }catch(error){
       toast("Receiving failed: "+error.message,"error");
+    }finally{
+      receivingSaveBusy = false;
+      if(submitButton?.isConnected){
+        submitButton.disabled = false;
+        submitButton.textContent = submitButton.dataset.originalText || "Save Receiving";
+        delete submitButton.dataset.originalText;
+      }
     }
   };
 }
