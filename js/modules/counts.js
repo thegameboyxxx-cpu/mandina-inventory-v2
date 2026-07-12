@@ -165,6 +165,10 @@ function canReview(count) {
   return isManager() && (count?.status || "draft") === "submitted";
 }
 
+function canDeleteDraftCount(count) {
+  return (count?.status || "draft") === "draft";
+}
+
 function branchName() {
   const b = (state.branches || []).find(x => x.id === state.currentBranchId) || {};
   return b.name || b.branch_name || b.title || state.currentBranchId || "";
@@ -276,7 +280,7 @@ function openCountEditor(count) {
   openModal(`
     <div class="modal-head">
       <h3>${esc(countNo(count))}</h3>
-      <button class="btn secondary small" onclick="closeModal()">x</button>
+      <button class="btn secondary small" id="closeCountEditorTop">x</button>
     </div>
     <div class="modal-body">
       <div class="grid cards" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:14px">
@@ -294,7 +298,8 @@ function openCountEditor(count) {
       <div id="countLineCards"></div>
     </div>
     <div class="modal-foot">
-      <button type="button" class="btn secondary" onclick="closeModal()">Close</button>
+      <button type="button" class="btn secondary" id="closeCountEditorBtn">Close</button>
+      ${canDeleteDraftCount(count) ? `<button type="button" class="btn red" id="deleteDraftCountBtn">Delete Draft</button>` : ""}
       ${readOnly ? "" : `<button type="button" class="btn secondary" id="saveCountDraftBtn">Save Draft</button><button type="button" class="btn green" id="submitCountBtn">Submit Count</button>`}
       ${managerReview ? `<button type="button" class="btn red" id="rejectCountBtn">Reject</button><button type="button" class="btn green" id="approveCountBtn">Approve Adjustments</button>` : ""}
     </div>
@@ -421,8 +426,38 @@ function openCountEditor(count) {
     await renderCounts();
   }
 
+  function hasAnyCountedQty() {
+    return localLines.some(line => line.counted_qty !== null && line.counted_qty !== undefined && line.counted_qty !== "");
+  }
+
+  async function deleteDraftCount(message = "Draft count deleted.") {
+    if (!canDeleteDraftCount(count)) return toast("Only draft counts can be deleted.", "error");
+    try {
+      await deleteRows("stock_count_lines", "count_id", count.id);
+      await deleteRows("stock_counts", "id", count.id);
+      await refreshAfter(message);
+    } catch (e) {
+      toast("Delete failed: " + e.message, "error");
+    }
+  }
+
+  async function closeCountEditor() {
+    if (canDeleteDraftCount(count) && !hasAnyCountedQty()) {
+      const shouldDelete = confirm("No quantities have been entered. Delete this empty draft instead of keeping it?");
+      if (shouldDelete) return deleteDraftCount("Empty draft count deleted.");
+    }
+    closeModal();
+  }
+
   $("countLineSearch").oninput = e => { search = e.target.value; renderLines(); };
   $("countLineFilter").onchange = e => { lineFilter = e.target.value; renderLines(); };
+  $("closeCountEditorBtn").onclick = closeCountEditor;
+  $("closeCountEditorTop").onclick = closeCountEditor;
+
+  if ($("deleteDraftCountBtn")) $("deleteDraftCountBtn").onclick = async () => {
+    if (!confirm(`Delete draft ${countNo(count)}? This removes the count and its empty lines.`)) return;
+    await deleteDraftCount();
+  };
 
   if ($("saveCountDraftBtn")) $("saveCountDraftBtn").onclick = async () => {
     try {
