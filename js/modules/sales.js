@@ -382,7 +382,7 @@ function openLoyverseSalesImportModal() {
       <div class="modal-body">
         <div class="form-grid">
           ${canSeeFinancials()
-            ? `<div><label>From</label><input name="from" type="date" class="input" value="${filters.from || today()}" required></div><div><label>To</label><input name="to" type="date" class="input" value="${filters.to || today()}" required></div>`
+            ? `<div><label>From</label><input name="from" type="date" class="input" value="${today()}" required></div><div><label>To</label><input name="to" type="date" class="input" value="${today()}" required></div>`
             : `<div class="full"><label>Import Date</label><select name="staff_date"><option value="${today()}" ${filters.from === today() ? "selected" : ""}>Today</option><option value="${yesterday()}" ${filters.from === yesterday() ? "selected" : ""}>Yesterday</option></select></div>`}
           ${canSeeFinancials() ? `<div class="full"><label>Loyverse Token Override</label><input name="token" type="password" class="input" autocomplete="off"><div class="muted">Optional. Leave blank to use the token saved for this branch.</div></div>` : ""}
         </div>
@@ -406,6 +406,10 @@ function openLoyverseSalesImportModal() {
     const from = canSeeFinancials() ? fd.get("from") : staffDate;
     const to = canSeeFinancials() ? fd.get("to") : staffDate;
     if (to < from) return toast("To date must be after From date.", "error");
+    if (canSeeFinancials() && (from !== today() || to !== today())) {
+      const ok = confirm(`You are importing Loyverse sales for ${from}${from === to ? "" : ` to ${to}`}, not today (${today()}). Continue?`);
+      if (!ok) return;
+    }
     $("loyverseSalesImportStatus").textContent = "Reading receipts from Loyverse...";
     try {
       const result = await loyverseSync("import-sales", {
@@ -414,7 +418,7 @@ function openLoyverseSalesImportModal() {
         to,
         branch_id: state.currentBranchId,
       });
-      toast(`Imported ${result.imported || 0} Loyverse receipts${result.skipped_confirmed ? `, skipped ${result.skipped_confirmed} confirmed` : ""}.`, "ok");
+      toast(`Imported ${result.imported || 0} Loyverse receipts${result.skipped_existing ? `, skipped ${result.skipped_existing} already imported` : ""}.`, "ok");
       closeModal();
       renderSales();
     } catch (err) {

@@ -222,12 +222,12 @@ serve(async req => {
       if (existingError) throw existingError;
       const existingByReceipt = new Map((existingReports || []).map(report => [report.loyverse_receipt_number, report]));
 
-      let skippedConfirmed = 0;
+      let skippedExisting = 0;
       const receiptsToImport = [];
       for (const receipt of receipts) {
         const existing = existingByReceipt.get(receipt.receipt_number);
-        if (existing?.status === "confirmed") {
-          skippedConfirmed += 1;
+        if (existing) {
+          skippedExisting += 1;
           continue;
         }
         receiptsToImport.push(receipt);
@@ -317,7 +317,7 @@ serve(async req => {
         receipts_read: receipts.length,
         imported: receiptsToImport.length,
         lines_imported: allReportLines.length,
-        skipped_confirmed: skippedConfirmed,
+        skipped_existing: skippedExisting,
       });
     }
 
